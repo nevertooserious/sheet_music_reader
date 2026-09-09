@@ -1,0 +1,13 @@
+{
+  "updatedAt": "2026-09-10T00:00:00Z",
+  "passThreshold": 8.5,
+  "maxRoundsPerModule": 4,
+  "modules": {
+    "ui": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
+    "parsing": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
+    "audio": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
+    "app": { "score": null, "pass": false, "rounds": [], "openIssues": ["not integrated"] }
+  },
+  "iterations": [],
+  "notes": "Scores are the critic's own numbers; never edited by builders."
+}

@@ -1,0 +1,5 @@
+{
+  "env": {
+    "OPENSSL_CONF": "/dev/null"
+  }
+}
