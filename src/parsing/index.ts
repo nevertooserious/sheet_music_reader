@@ -80,7 +80,8 @@ export function createParser(): ScoreParser {
         const pages: PageExtraction[] = [];
         const infos: PageInfo[] = [];
         const requested = options.pages?.filter((n) => Number.isInteger(n) && n >= 1 && n <= doc.numPages);
-        const pageNumbers = requested && requested.length ? requested : Array.from({ length: doc.numPages }, (_, i) => i + 1);
+        if (options.pages && !requested?.length) throw new Error(`None of the requested pages exist; "${options.fileName}" has ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}.`);
+        const pageNumbers = requested?.length ? requested : Array.from({ length: doc.numPages }, (_, i) => i + 1);
         for (let i = 0; i < pageNumbers.length; i++) {
           progress(0.05 + (0.45 * i) / pageNumbers.length, `Reading page ${pageNumbers[i]} of ${doc.numPages}`);
           const page = await doc.getPage(pageNumbers[i]);

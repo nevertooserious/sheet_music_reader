@@ -248,7 +248,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     for (const s of onPage(l.debug.staves)) {
       ctx.strokeStyle = TRACK_COLORS[s.index % TRACK_COLORS.length] + (faint ? '55' : 'cc');
       ctx.lineWidth = 1.2;
-      for (const y of s.lines) {
+      for (const y of s.lineCount === 1 ? [s.lines[2]] : s.lines) {
         ctx.beginPath();
         ctx.moveTo(s.x1, y);
         ctx.lineTo(s.x2, y);

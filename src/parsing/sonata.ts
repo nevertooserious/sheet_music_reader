@@ -52,18 +52,37 @@ const UNICODE_TO_CODE = new Map<number, number>();
   if (!UNICODE_TO_CODE.has(ch.codePointAt(0)!)) UNICODE_TO_CODE.set(ch.codePointAt(0)!, 0x80 + i);
 });
 
-export const SONATA_FONT =
-  /^(opus|inkpen2?|helsinki|reprise|norfolk|pori|lelandia|maestro|sonata|petrucci|engraver|jazz|seville|ghent|golden ?age|toccata|fughetta)/i;
-
+const FAMILY = /^(opus|inkpen2?|helsinki|reprise|norfolk|pori|lelandia|maestro|sonata|petrucci|engraver|jazz|seville|ghent|goldenage|toccata|fughetta)/;
+const SUFFIXES =
+  /^(?:std|specialextra|specialii|special|text|plainchords|chords|sans|condensed|percussion|metronome|figuredbass|figured|romanchords|roman|functionsymbols|function|notenames|ornaments|harp|bigtime|japanese|script|wide|fontset|tab|asc|asl|regular|bold|italic|medium|\d+)*$/;
 const IGNORED_VARIANT =
-  /(text|chords|percussion|metronome|figured|roman|function|notenames|ornaments|harp|bigtime|japanese|script|specialii)/i;
+  /specialii|text|chords|percussion|metronome|figured|roman|function|notenames|ornaments|harp|bigtime|japanese|script|tab|asc|asl/;
 
-/** Which glyph table applies to a font of this family, or 'ignore' for text-like companion fonts. */
+function normalise(fontName: string): string {
+  return fontName.toLowerCase().replace(/[\s_\-.,]/g, '');
+}
+
+/**
+ * The glyph table for a font of one of the Sonata-layout families, 'ignore'
+ * for their text-like companions (Opus Text, Opus Chords, ...), or undefined
+ * for fonts outside the families (including look-alikes such as Engravers MT,
+ * Maestro Times or Reprise Title).
+ */
+export function sonataFamily(fontName: string): SonataVariant | undefined {
+  const name = normalise(fontName);
+  const m = FAMILY.exec(name);
+  if (!m) return undefined;
+  const rest = name.slice(m[0].length);
+  if (!SUFFIXES.test(rest)) return undefined;
+  return sonataVariant(rest);
+}
+
+/** Which glyph table applies, judged from the name's suffix tokens. */
 export function sonataVariant(fontName: string): SonataVariant {
-  const name = fontName.replace(/\s|-|_/g, '');
+  const name = normalise(fontName).replace(FAMILY, '');
   if (IGNORED_VARIANT.test(name)) return 'ignore';
-  if (/specialextra/i.test(name)) return 'specialExtra';
-  if (/special/i.test(name)) return 'special';
+  if (/specialextra/.test(name)) return 'specialExtra';
+  if (/special/.test(name)) return 'special';
   return 'main';
 }
 
@@ -76,13 +95,17 @@ export function sonataCode(glyph: Pick<GlyphPlacement, 'code' | 'name' | 'unicod
   if (glyph.nameFromDifferences && named !== undefined) return named;
   const cp = glyph.unicode && glyph.unicode.length ? glyph.unicode.codePointAt(0)! : -1;
   if (cp >= 0xf000 && cp <= 0xf0ff) return cp - 0xf000;
-  const trueType = /truetype|cidfonttype2|opentype/i.test(glyph.fontType ?? '');
-  if (trueType && glyph.code >= 0 && glyph.code < 256) return glyph.code;
+  const type = (glyph.fontType ?? '').toLowerCase();
+  // Simple TrueType/OpenType fonts keep the original byte as the code; CID-keyed fonts expose glyph indices, which mean nothing here.
+  const simpleTrueType = type === 'truetype' || type === 'opentype';
+  const cidKeyed = type.startsWith('cid') || type.includes('type0');
+  const byte = glyph.code >= 0 && glyph.code < 256 ? glyph.code : undefined;
+  if (simpleTrueType && byte !== undefined) return byte;
   if (named !== undefined) return named;
   if (cp >= 0x20 && cp < 0x7f) return cp;
   const fromMac = cp >= 0 ? UNICODE_TO_CODE.get(cp) : undefined;
   if (fromMac !== undefined) return fromMac;
-  return glyph.code >= 0 && glyph.code < 256 ? glyph.code : undefined;
+  return cidKeyed ? undefined : byte;
 }
 
 const black: MusicGlyph = { kind: 'notehead', head: 'black' };
@@ -236,6 +259,8 @@ const SPECIAL: Record<number, MusicGlyph> = {
   0x55: other,
   0x7b: { kind: 'brace' },
   0xaa: { kind: 'dot' }, // augmentation, staccato and repeat dots
+  0xdc: { kind: 'clefOctave', digit: 8 }, // the 8 of 8va / 8vb clefs, drawn separately at full size
+  0xdd: { kind: 'clefOctave', digit: 15 },
 };
 
 /** Opus Special Extra: a handful of extra noteheads. */

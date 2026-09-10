@@ -10,7 +10,7 @@ import type {
   Point,
   TextRun,
 } from './model';
-import { SONATA_FONT, sonataVariant } from './sonata';
+import { sonataFamily } from './sonata';
 
 /** The subset of a pdf.js PDFPageProxy + operator list that extraction needs. */
 export interface OperatorListLike {
@@ -81,7 +81,8 @@ export function classifyFontFamily(name: string): FontFamily {
   if (/emmentaler|feta|parmesan|gonville|lilyjazz/i.test(name)) return 'emmentaler';
   if (/text$/i.test(name) && SMUFL_FONT.test(name)) return 'text';
   if (SMUFL_FONT.test(name)) return 'smufl';
-  if (SONATA_FONT.test(name)) return sonataVariant(name) === 'ignore' ? 'text' : 'sonata';
+  const sonata = sonataFamily(name);
+  if (sonata) return sonata === 'ignore' ? 'text' : 'sonata';
   if (LEGACY_MUSIC_FONT.test(name)) return 'legacy-music';
   return 'text';
 }
@@ -290,8 +291,11 @@ export function extractPage(page: PageLike): PageExtraction {
       const size = Math.hypot(up.x, up.y);
       const w0 = ((item.width ?? 0) / 1000) * fontMatrixScale;
       const tx = (w0 * gs.fontSize + gs.charSpacing + (item.isSpace ? gs.wordSpacing : 0)) * gs.hscale;
-      const advVec = applyVector(mul(tm, gs.ctm), tx, 0);
-      const advance = Math.hypot(advVec.x, advVec.y);
+      const penVec = applyVector(mul(tm, gs.ctm), tx, 0);
+      const penAdvance = Math.hypot(penVec.x, penVec.y);
+      // A glyph's own width excludes character spacing (Tc), which Sibelius uses to space runs; the pen still moves by tx.
+      const glyphVec = applyVector(mul(tm, gs.ctm), w0 * gs.fontSize * gs.hscale, 0);
+      const advance = Math.hypot(glyphVec.x, glyphVec.y);
       const code = item.originalCharCode ?? 0;
       if (info.family === 'text') {
         const ch = item.isSpace ? ' ' : (item.unicode ?? '');
@@ -311,7 +315,7 @@ export function extractPage(page: PageLike): PageExtraction {
           currentRun.text += ' ';
         }
         currentRun.text += ch;
-        currentRun.right = origin.x + advance;
+        currentRun.right = origin.x + penAdvance;
         currentRun.size = Math.max(currentRun.size, size);
       } else {
         const named = glyphName(font, code);

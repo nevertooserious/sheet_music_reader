@@ -4,3 +4,4 @@ tools/verify/out/
 .DS_Store
 *.log
 .probe.mjs
+fixtures/external/

@@ -105,3 +105,12 @@ measures are passed through `extendEndings` once, the timeline is built from tha
 opened the ending. The fixture has no alternative endings (plain repeat barlines at measures 15/16/31), so on
 the demo every `volta` is undefined and the timeline is unchanged; the field is exercised by the synthetic
 two-line volta page (`src/parsing/syntheticScene.ts`, parsing showcase step 7). The UI does not yet read the field.
+
+## parsing — `ParseOptions.pages` (1-based page selection)            (status: applied by the orchestrator, 2026-09-10)
+Why: staging the parsing showcase on a page range of a large external PDF (the Sibelius reference guide) without parsing all 807 pages.
+Change: `pages?: number[]` on ParseOptions in src/core/contracts.ts; `ScoreDocument.pages` indexed in the selected order; all-invalid input rejects with a message.
+Workaround used meanwhile: none.
+
+## parsing — showcase `--query` and rate-based playback check in tools/verify    (status: applied by the orchestrator, 2026-09-10)
+Why: `showcase.mjs --query "pdf=...&pages=..."` forwards parameters so critics can screenshot any engraved PDF; the run.mjs "transport is playing and advancing" check compared position with wall time across a screenshot and failed under machine load (4.25 vs 5.79 qn); it now measures the advance rate over a one-second window (±15 %).
+Workaround used meanwhile: none.

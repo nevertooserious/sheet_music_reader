@@ -24,6 +24,7 @@ import { detectVoltas, openVoltaAtLineEnd, voltaForRegion, type BracketLabel, ty
 import { assembleMeasure, type OnsetAnchor, type RhythmItem } from './rhythm';
 import {
   detectBarlines,
+  detectSingleLineStaves,
   detectStaves,
   glyphCenterX,
   groupSystems,
@@ -36,6 +37,7 @@ import {
   type MeasureRegion,
   type VLine,
 } from './staves';
+import { sonataFamily } from './sonata';
 import { buildTimeline, extendEndings, timelineDuration } from './timeline';
 import { detectTuplets, parseTupletText, type TupletGroup, type TupletItem, type TupletLabel } from './tuplets';
 
@@ -125,6 +127,8 @@ interface StaffGlyphs {
   accidentals: ClassifiedGlyph[];
   dots: ClassifiedGlyph[];
   digits: ClassifiedGlyph[];
+  /** Full-size 8 / 15 marks Sibelius draws next to octave clefs. */
+  octaveMarks: ClassifiedGlyph[];
   tuplets: ClassifiedGlyph[];
   timesigs: ClassifiedGlyph[];
   flags: ClassifiedGlyph[];
@@ -197,6 +201,8 @@ interface MeasureBuild {
 interface StaffState {
   clef: ClefKind;
   clefOctave: number;
+  /** Half-spaces the clef sits above its standard line (0 for treble/bass/alto/tenor in place). */
+  clefShift: number;
   fifths: number;
   time?: [number, number];
 }
@@ -239,7 +245,7 @@ const SHARP_DEGREES = [3, 0, 4, 1, 5, 2, 6];
 const FLAT_DEGREES = [6, 2, 5, 1, 4, 0, 3];
 
 function emptyStaffGlyphs(): StaffGlyphs {
-  return { heads: [], rests: [], clefs: [], accidentals: [], dots: [], digits: [], tuplets: [], timesigs: [], flags: [], barlines: [] };
+  return { heads: [], rests: [], clefs: [], accidentals: [], dots: [], digits: [], octaveMarks: [], tuplets: [], timesigs: [], flags: [], barlines: [] };
 }
 
 interface AmbiguousRest {
@@ -304,10 +310,23 @@ function groupByX(glyphs: ClassifiedGlyph[], tolerance: number): ClassifiedGlyph
   return groups;
 }
 
-function resolveClef(c: ClassifiedGlyph, staff: Staff): ClefKind {
+/** Standard half-space position of each clef's reference line relative to the middle line. */
+const CLEF_HOME: Partial<Record<ClefKind, number>> = { treble: -2, bass: 2, alto: 0 };
+
+/**
+ * Clef glyphs sit with their origin on the line they name (G, F or C), so the
+ * origin's step tells which line that is: the tenor clef is a C clef two
+ * half-spaces up; soprano, mezzo, baritone, French violin and sub-bass clefs
+ * are reported as the base kind plus an even `shift` of at most four steps.
+ */
+function resolveClef(c: ClassifiedGlyph, staff: Staff): { kind: ClefKind; shift: number } {
   const kind = c.music.clef ?? 'unknown';
-  if (kind === 'alto' && yToStep(c.y, staff.lines[2], staff.space) === 2) return 'tenor';
-  return kind;
+  const home = CLEF_HOME[kind];
+  if (home === undefined) return { kind, shift: 0 };
+  const step = yToStep(c.y, staff.lines[2], staff.space);
+  if (kind === 'alto' && step === 2) return { kind: 'tenor', shift: 0 };
+  const shift = step - home;
+  return { kind, shift: shift % 2 === 0 && Math.abs(shift) <= 4 ? shift : 0 };
 }
 
 function clefOctaveFromDigits(c: ClassifiedGlyph, staff: Staff, digits: ClassifiedGlyph[]): number {
@@ -315,14 +334,28 @@ function clefOctaveFromDigits(c: ClassifiedGlyph, staff: Staff, digits: Classifi
   const sp = staff.space;
   const cx = glyphCenterX(c);
   for (const d of digits) {
-    if (d.size > 0.6 * staffHeight(staff)) continue;
+    if (d.music.kind === 'digit' && d.size > 0.6 * staffHeight(staff)) continue;
     if (Math.abs(glyphCenterX(d) - cx) > 1.6 * sp) continue;
-    const shift = d.music.digit === 8 ? 1 : d.music.digit === 5 ? 2 : 0;
+    const shift = d.music.digit === 8 ? 1 : d.music.digit === 5 || d.music.digit === 15 ? 2 : 0;
     if (!shift) continue;
-    if (d.y > staff.bottom + 0.5 * sp) return -shift;
-    if (d.y < staff.top - 0.5 * sp) return shift;
+    // Marks are centred (Opus) or sit on a baseline (Emmentaler); either way they are on the far side of the middle line.
+    return d.y > staff.lines[2] ? -shift : shift;
   }
   return 0;
+}
+
+/** Two treble clefs drawn on top of each other: the old-style "treble clef down one octave". */
+function doubledTrebleClefs(clefs: ClassifiedGlyph[], sp: number): Map<ClassifiedGlyph, 'first' | 'second'> {
+  const roles = new Map<ClassifiedGlyph, 'first' | 'second'>();
+  for (let i = 0; i + 1 < clefs.length; i++) {
+    const a = clefs[i];
+    const b = clefs[i + 1];
+    if (a.music.clef === 'treble' && b.music.clef === 'treble' && Math.abs(b.y - a.y) < 0.5 * sp && b.x - a.x < 2.5 * sp && !roles.has(a)) {
+      roles.set(a, 'first');
+      roles.set(b, 'second');
+    }
+  }
+  return roles;
 }
 
 function isOctaveDigit(d: ClassifiedGlyph, staff: Staff, clefs: ClassifiedGlyph[]): boolean {
@@ -354,6 +387,7 @@ interface KeyAnchor {
   reach: number;
   clef: ClefKind;
   clefOctave: number;
+  clefShift: number;
   /** Anchored at the closing barline of a line: the signature is a courtesy for the next line. */
   courtesy: boolean;
   /** Anchored right after a clef, where no note can stand. */
@@ -384,7 +418,7 @@ function readKeyGroups(accidentals: ClassifiedGlyph[], heads: ClassifiedGlyph[],
   const used = new Set<ClassifiedGlyph>();
   const groups: KeyGroup[] = [];
   const degreeAt = (g: ClassifiedGlyph, anchor: KeyAnchor): number =>
-    degreeOf(stepToDiatonic(yToStep(g.y, staff.lines[2], sp), anchor.clef === 'unknown' ? 'treble' : anchor.clef, anchor.clefOctave));
+    degreeOf(stepToDiatonic(yToStep(g.y, staff.lines[2], sp), anchor.clef === 'unknown' ? 'treble' : anchor.clef, anchor.clefOctave, anchor.clefShift));
   let prevDegrees = keyDegrees(prevFifths);
   const headOnStepAfter = (g: ClassifiedGlyph, right: number): boolean => {
     const step = yToStep(g.y, staff.lines[2], sp);
@@ -607,13 +641,55 @@ function readTitle(page: PageExtraction | undefined): { title?: string; composer
   return { title: title.text, composer: composer?.text };
 }
 
-function readTempo(page: PageExtraction | undefined): { bpm: number; text: string } | undefined {
+/**
+ * Quarter notes per beat for the note glyph of a metronome mark. Sonata-layout
+ * text fonts (Opus Text, Opus Metronome) expose their glyphs as PUA code
+ * points F0xx of the Sonata letters (w h q e x); a following dot lengthens by half.
+ */
+export function metronomeBeatQn(text: string): number {
+  const beforeEquals = text.split('=')[0];
+  const m = /([\uf000-\uf0ff\u{1d15d}-\u{1d161}\u2669-\u266b])(\s*[.\uf02e\uf06b])?/u.exec(beforeEquals);
+  if (!m) return 1;
+  const cp = m[1].codePointAt(0)!;
+  const code = cp >= 0xf000 && cp <= 0xf0ff ? cp - 0xf000 : cp;
+  const base: Record<number, number> = {
+    0x77: 4, // w
+    0x57: 8, // W
+    0x68: 2, // h H
+    0x48: 2,
+    0x71: 1, // q Q
+    0x51: 1,
+    0x65: 0.5, // e E
+    0x45: 0.5,
+    0x78: 0.25, // x X
+    0x58: 0.25,
+    0x1d15d: 4,
+    0x1d15e: 2,
+    0x2669: 1,
+    0x1d15f: 1,
+    0x266a: 0.5,
+    0x1d160: 0.5,
+    0x1d161: 0.25,
+  };
+  const qn = base[code] ?? 1;
+  return m[2] ? qn * 1.5 : qn;
+}
+
+export function readTempo(page: PageExtraction | undefined): { bpm: number; text: string } | undefined {
   if (!page) return undefined;
   for (const t of page.texts) {
-    const m = /=\s*(\d{2,3})\b/.exec(t.text);
+    const m = /=\s*(?:ca\.?\s*|c\.\s*|approx\.?\s*|about\s*)?(\d{2,3})\b/i.exec(t.text);
     if (m) {
-      const bpm = Number(m[1]);
-      if (bpm >= 20 && bpm <= 300) return { bpm, text: t.text.trim() };
+      // The metronome note glyph usually comes from another font (a Sonata-layout text font such as
+      // Opus Text, whose letters w h q e are note values) and therefore another run on the same line.
+      const line = page.texts
+        .filter((o) => Math.abs(o.y - t.y) <= 0.6 * Math.max(o.size, t.size) && o.right <= t.x + 0.5 * t.size && o.right >= t.x - 6 * t.size)
+        .sort((a, b) => a.x - b.x)
+        .map((o) => (sonataFamily(o.fontName) ? [...o.text].map((c) => (c.charCodeAt(0) < 0x80 ? String.fromCharCode(0xf000 + c.charCodeAt(0)) : c)).join('') : o.text))
+        .join(' ');
+      const beat = Number(m[1]);
+      const bpm = Math.round(beat * metronomeBeatQn(`${line} ${t.text}`));
+      if (beat >= 20 && beat <= 300 && bpm >= 20 && bpm <= 400) return { bpm, text: `${line} ${t.text}`.trim() };
     }
   }
   for (const t of page.texts) {
@@ -670,6 +746,14 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
   const bracketsByPage: HLine[][] = [];
   for (const p of pages) {
     const staves = detectStaves(p.paths, p.index);
+    const percussionClefs = classified[p.index]
+      .filter((g) => g.music.kind === 'clef' && g.music.clef === 'percussion')
+      .map((g) => ({ x: glyphCenterX(g), y: g.y }));
+    const singleLine = detectSingleLineStaves(p.paths, p.index, staves, percussionClefs);
+    if (singleLine.length) {
+      staves.push(...singleLine);
+      staves.sort((a, b) => a.top - b.top);
+    }
     const verticals = verticalLines(p.paths);
     verticalsByPage[p.index] = verticals;
     const space = staves[0]?.space ?? 5;
@@ -681,9 +765,8 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
   if (!allStaves.length) throw new Error('No staff lines were found in this PDF, so it cannot be read as sheet music.');
 
   const stavesPerSystem = systems.map((s) => s.staves.length);
-  const trackCount = Math.max(...stavesPerSystem);
   if (new Set(stavesPerSystem).size > 1) {
-    warn(`Systems have differing staff counts (${[...new Set(stavesPerSystem)].join(', ')}); staves are matched by position from the top.`);
+    warn(`Systems have differing staff counts (${[...new Set(stavesPerSystem)].join(', ')}); staves are matched to tracks by kind (rhythm line, drum staff, pitched staff) and position from the top.`);
   }
 
   const glyphsByStaff = new Map<Staff, StaffGlyphs>();
@@ -733,6 +816,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
       else if (kind === 'accidental') bag.accidentals.push(g);
       else if (kind === 'dot') bag.dots.push(g);
       else if (kind === 'digit') bag.digits.push(g);
+      else if (kind === 'clefOctave') bag.octaveMarks.push(g);
       else if (kind === 'tuplet') bag.tuplets.push(g);
       else if (kind === 'timesig') bag.timesigs.push(g);
       else if (kind === 'flag') bag.flags.push(g);
@@ -761,9 +845,39 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
   for (const p of pages) for (const b of beamsByPage[p.index]) debug.beams.push({ page: p.index, points: b.points });
   for (const [system, stems] of stemsBySystem) for (const st of stems) debug.stems.push({ page: system.page, x: st.x, y1: st.y1, y2: st.y2 });
 
+  // Staves become tracks by kind and vertical order, so a choral score whose
+  // percussion lines come and go keeps its voices on the same tracks.
+  type StaffKind = 'rhythm' | 'drum' | 'pitched';
+  const KIND_ORDER: StaffKind[] = ['rhythm', 'drum', 'pitched'];
+  const kindOf = (staff: Staff): StaffKind => {
+    if (staff.lineCount === 1) return 'rhythm';
+    const first = [...glyphsByStaff.get(staff)!.clefs].sort((a, b) => a.x - b.x)[0];
+    return first?.music.clef === 'percussion' ? 'drum' : 'pitched';
+  };
+  const kindMax: Record<StaffKind, number> = { rhythm: 0, drum: 0, pitched: 0 };
+  for (const system of systems) {
+    const counts: Record<StaffKind, number> = { rhythm: 0, drum: 0, pitched: 0 };
+    for (const staff of system.staves) counts[kindOf(staff)]++;
+    for (const k of KIND_ORDER) kindMax[k] = Math.max(kindMax[k], counts[k]);
+  }
+  const kindOffset: Record<StaffKind, number> = { rhythm: 0, drum: kindMax.rhythm, pitched: kindMax.rhythm + kindMax.drum };
+  const trackCount = kindMax.rhythm + kindMax.drum + kindMax.pitched;
+  const trackSlot = new Map<Staff, number>();
+  const signatureStaff = new Map<System, Staff>();
+  for (const system of systems) {
+    const counts: Record<StaffKind, number> = { rhythm: 0, drum: 0, pitched: 0 };
+    for (const staff of system.staves) {
+      const k = kindOf(staff);
+      trackSlot.set(staff, kindOffset[k] + counts[k]++);
+    }
+    signatureStaff.set(system, system.staves.find((st) => kindOf(st) === 'pitched') ?? system.staves[0]);
+  }
+  const slot = (staff: Staff): number => trackSlot.get(staff)!;
+  const trackKind = (i: number): StaffKind => (i < kindOffset.drum ? 'rhythm' : i < kindOffset.pitched ? 'drum' : 'pitched');
+
   progress(0.7, 'Reading notes');
   const staffStates: StaffState[] = [];
-  for (let i = 0; i < trackCount; i++) staffStates.push({ clef: 'unknown', clefOctave: 0, fifths: 0 });
+  for (let i = 0; i < trackCount; i++) staffStates.push({ clef: 'unknown', clefOctave: 0, clefShift: 0, fifths: 0 });
   const firstClefs = new Map<number, ClefKind>();
   const measures: MeasureBuild[] = [];
   const timeSignatures: TimeSignature[] = [];
@@ -828,40 +942,46 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
     const analyses = new Map<Staff, StaffAnalysis>();
     for (const staff of system.staves) {
       const bag = glyphsByStaff.get(staff)!;
-      const state = staffStates[staff.index];
+      const state = staffStates[slot(staff)];
       const sp = staff.space;
       const firstNoteX = Math.min(Infinity, ...bag.heads.map(glyphCenterX), ...bag.rests.map(glyphCenterX));
 
       const clefs = [...bag.clefs].sort((a, b) => a.x - b.x);
       const changeClefs: ClassifiedGlyph[] = [];
+      const marks = [...bag.digits, ...bag.octaveMarks];
+      const doubled = doubledTrebleClefs(clefs, sp);
+      const octaveOf = (c: ClassifiedGlyph): number => (doubled.get(c) === 'first' ? -1 : clefOctaveFromDigits(c, staff, marks));
       for (const c of clefs) {
-        const kind = resolveClef(c, staff);
+        if (doubled.get(c) === 'second') continue;
+        const { kind, shift } = resolveClef(c, staff);
         debug.clefs.push({ page, x: c.x, y: c.y, clef: kind });
         if (c.x < firstNoteX) {
           state.clef = kind;
-          state.clefOctave = clefOctaveFromDigits(c, staff, bag.digits);
-          if (!firstClefs.has(staff.index)) firstClefs.set(staff.index, kind);
+          state.clefShift = shift;
+          state.clefOctave = octaveOf(c);
+          if (!firstClefs.has(slot(staff))) firstClefs.set(slot(staff), kind);
         } else changeClefs.push(c);
       }
       if (state.clef === 'unknown' && !clefWarned.has(staff.index)) {
         clefWarned.add(staff.index);
         warn(`No clef found for staff ${staff.index + 1}; treble clef assumed.`);
       }
-      const clefAtX = (x: number): { clef: ClefKind; octave: number } => {
+      const clefAtX = (x: number): { clef: ClefKind; octave: number; shift: number } => {
         let clef = state.clef;
         let octave = state.clefOctave;
+        let shift = state.clefShift;
         for (const c of changeClefs) {
           if (c.x < x) {
-            clef = resolveClef(c, staff);
-            octave = clefOctaveFromDigits(c, staff, bag.digits);
+            ({ kind: clef, shift } = resolveClef(c, staff));
+            octave = octaveOf(c);
           }
         }
-        return { clef, octave };
+        return { clef, octave, shift };
       };
 
       const anchorAt = (x: number, reach: number, kind: 'clef' | 'region' | 'courtesy', regionEnd?: number): KeyAnchor => {
-        const { clef, octave } = clefAtX(x + 0.01);
-        return { x, reach, courtesy: kind === 'courtesy', afterClef: kind === 'clef', regionEnd, clef, clefOctave: octave };
+        const { clef, octave, shift } = clefAtX(x + 0.01);
+        return { x, reach, courtesy: kind === 'courtesy', afterClef: kind === 'clef', regionEnd, clef, clefOctave: octave, clefShift: shift };
       };
       const anchors: KeyAnchor[] = [];
       for (const c of clefs) anchors.push(anchorAt(c.x + c.advance, 3 * sp, 'clef'));
@@ -970,7 +1090,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
       const regionClefs = new Map<Staff, ClassifiedGlyph[]>();
       const courtesyKeys: Array<{ staff: Staff; fifths: number }> = [];
       for (const staff of system.staves) {
-        const state = staffStates[staff.index];
+        const state = staffStates[slot(staff)];
         const sp = staff.space;
         const analysis = analyses.get(staff)!;
         regionClefs.set(
@@ -985,20 +1105,20 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
           }
           if (kc.fifths !== state.fifths || index === 0) {
             state.fifths = kc.fifths;
-            if (staff.index === 0) keySignatures.push({ measure: index, fifths: kc.fifths });
+            if (staff === signatureStaff.get(system)) keySignatures.push({ measure: index, fifths: kc.fifths });
           }
         }
         for (const tc of analysis.timeChanges) {
           if (tc.x >= region.x1 - 0.5 * sp && tc.x < region.x2) {
             state.time = tc.time;
-            if (staff.index === 0) timeSignatures.push({ measure: index, beats: tc.time[0], beatType: tc.time[1] });
+            if (staff === signatureStaff.get(system)) timeSignatures.push({ measure: index, beats: tc.time[0], beatType: tc.time[1] });
           }
         }
         for (const a of analysis.ignoredAccidentals) {
           if (inRegion(a, region)) warn(`Measure ${index + 1}, staff ${staff.index + 1}: an accidental not attached to any note was ignored.`);
         }
       }
-      if (index === 0 && !keySignatures.length) keySignatures.push({ measure: 0, fifths: staffStates[0].fifths });
+      if (index === 0 && !keySignatures.length) keySignatures.push({ measure: 0, fifths: staffStates[slot(signatureStaff.get(system)!)].fifths });
       const time = staffStates.find((s) => s.time)?.time;
       if (index === 0 && !timeSignatures.length && time) timeSignatures.push({ measure: 0, beats: time[0], beatType: time[1] });
       build.nominalQn = time ? (time[0] * 4) / time[1] : 0;
@@ -1027,27 +1147,28 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
         build.nominalQn > 0 && qn > 0 && qn < build.nominalQn - 1e-3 && multipleOf(qn, 0.125) && (system.staves.length > 1 || sensibleShort(qn));
 
       const assembleStaff = (staff: Staff, extraRests: ClassifiedGlyph[]): StaffMeasureResult => {
-        const state = staffStates[staff.index];
+        const state = staffStates[slot(staff)];
         const sp = staff.space;
         const analysis = analyses.get(staff)!;
         const bag = glyphsByStaff.get(staff)!;
         const heads = analysis.heads.filter((h) => h.cx >= region.x1 && h.cx < region.x2).sort((a, b) => a.cx - b.cx);
         const memory = new AccidentalMemory(state.fifths);
         const baseClef: ClefKind = state.clef === 'unknown' ? 'treble' : state.clef;
-        const clefAt = (x: number): { clef: ClefKind; octave: number } => {
+        const clefAt = (x: number): { clef: ClefKind; octave: number; shift: number } => {
           let clef: ClefKind = baseClef;
           let octave = state.clefOctave;
+          let shift = state.clefShift;
           for (const c of regionClefs.get(staff) ?? []) {
             if (c.x < x) {
-              clef = resolveClef(c, staff);
-              octave = clefOctaveFromDigits(c, staff, bag.digits);
+              ({ kind: clef, shift } = resolveClef(c, staff));
+              octave = clefOctaveFromDigits(c, staff, [...bag.digits, ...bag.octaveMarks]);
             }
           }
-          return { clef, octave };
+          return { clef, octave, shift };
         };
         for (const info of heads) {
-          const { clef, octave } = clefAt(info.cx);
-          info.diatonic = stepToDiatonic(info.step, clef, octave);
+          const { clef, octave, shift } = clefAt(info.cx);
+          info.diatonic = stepToDiatonic(info.step, clef, octave, shift);
           info.alteration = memory.resolve(info.diatonic, info.accidental);
           info.midi = Math.max(0, Math.min(127, diatonicToMidi(info.diatonic, info.alteration)));
         }
@@ -1184,18 +1305,18 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
       }
 
       for (const staff of system.staves) {
-        const state = staffStates[staff.index];
+        const state = staffStates[slot(staff)];
         const bag = glyphsByStaff.get(staff)!;
         for (const c of regionClefs.get(staff) ?? []) {
-          state.clef = resolveClef(c, staff);
-          state.clefOctave = clefOctaveFromDigits(c, staff, bag.digits);
+          ({ kind: state.clef, shift: state.clefShift } = resolveClef(c, staff));
+          state.clefOctave = clefOctaveFromDigits(c, staff, [...bag.digits, ...bag.octaveMarks]);
         }
       }
       for (const ck of courtesyKeys) {
-        const state = staffStates[ck.staff.index];
+        const state = staffStates[slot(ck.staff)];
         if (ck.fifths !== state.fifths) {
           state.fifths = ck.fifths;
-          if (ck.staff.index === 0) keySignatures.push({ measure: index + 1, fifths: ck.fifths });
+          if (ck.staff === signatureStaff.get(system)) keySignatures.push({ measure: index + 1, fifths: ck.fifths });
         }
       }
       measures.push(build);
@@ -1222,8 +1343,14 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
   for (let i = 0; i < trackCount; i++) {
     tracks.push({
       id: `track-${i + 1}`,
-      name: isPiano ? (i === 0 ? 'Right hand' : 'Left hand') : `Staff ${i + 1}`,
-      instrument: 'piano',
+      name: isPiano
+        ? i === 0
+          ? 'Right hand'
+          : 'Left hand'
+        : trackKind(i) === 'pitched'
+          ? `Staff ${i - kindOffset.pitched + 1}`
+          : `Percussion ${i + 1}`,
+      instrument: trackKind(i) === 'pitched' ? 'piano' : 'other',
       clef: firstClefs.get(i) ?? 'unknown',
       staffIndex: i,
       notes: [],
@@ -1263,7 +1390,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
     });
     for (const r of m.perStaff) {
       const staff = r.staff;
-      const track = tracks[staff.index];
+      const track = tracks[slot(staff)];
       if (!track) continue;
       const emit = (info: HeadInfo, onset: number, dur: number, grace: boolean, measureIndex = m.index): void => {
         debug.notes.push({
@@ -1272,7 +1399,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
           y: info.y,
           midi: info.midi,
           label: pitchLabel(info.diatonic, info.alteration),
-          track: staff.index,
+          track: slot(staff),
           durationQn: dur,
           grace,
           measure: measureIndex,
@@ -1280,7 +1407,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
         });
         for (const start of occurrences.get(measureIndex) ?? []) {
           track.notes.push({
-            id: `${track.id}-${noteCounters[staff.index]++}`,
+            id: `${track.id}-${noteCounters[slot(staff)]++}`,
             trackId: track.id,
             midi: info.midi,
             startQn: round4(start + onset),

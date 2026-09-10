@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { classifyFontFamily } from './extract';
 import { classifyGlyph } from './glyphs';
 import type { GlyphPlacement } from './model';
-import { classifySonataCode, sonataCode, sonataVariant, MAC_ROMAN_NAMES } from './sonata';
+import { classifySonataCode, sonataCode, sonataFamily, sonataVariant, MAC_ROMAN_NAMES } from './sonata';
 
 function glyph(over: Partial<GlyphPlacement>): GlyphPlacement {
   return {
@@ -39,6 +39,17 @@ describe('font family detection for Sonata-layout fonts', () => {
     expect(classifyFontFamily('MusiSync')).toBe('legacy-music');
   });
 
+  it('does not mistake look-alike text fonts for music fonts', () => {
+    for (const name of ['EngraversMT', 'Engravers MT', 'EngraversGothicBT', 'EngraversOldEnglishMT', 'MaestroTimes', 'RepriseTitleStd', 'RepriseStampStd', 'RepriseRehearsalStd', 'JazzCord', 'JazzPerc', 'Jazz LET', 'Sonatina', 'Opusculum']) {
+      expect(sonataFamily(name), name).toBeUndefined();
+      expect(classifyFontFamily(name), name).toBe('text');
+    }
+    expect(sonataFamily('NorfolkTabStd')).toBe('ignore');
+    expect(sonataFamily('EngraverFontSet')).toBe('main');
+    expect(sonataFamily('Opus-Regular')).toBe('main');
+    expect(sonataFamily('Golden Age')).toBe('main');
+  });
+
   it('picks the glyph table from the font name', () => {
     expect(sonataVariant('OpusStd')).toBe('main');
     expect(sonataVariant('Opus Special Std')).toBe('special');
@@ -73,8 +84,8 @@ describe('recovering the original Sonata code', () => {
   });
 
   it('falls back to MacRoman characters and then to the byte', () => {
-    expect(sonataCode(glyph({ code: 7, unicode: 'œ' }))).toBe(0xcf);
-    expect(sonataCode(glyph({ code: 7, unicode: '˙' }))).toBe(0xfa);
+    expect(sonataCode(glyph({ code: 7, unicode: '\u0153' }))).toBe(0xcf); // oe ligature, MacRoman 0xCF
+    expect(sonataCode(glyph({ code: 7, unicode: '\u02d9' }))).toBe(0xfa); // dot above, MacRoman 0xFA
     expect(sonataCode(glyph({ code: 0x26, unicode: '&' }))).toBe(0x26);
     expect(sonataCode(glyph({ code: 0xee }))).toBe(0xee);
   });
@@ -120,6 +131,8 @@ describe('Sonata / Opus main table', () => {
     expect(classifySonataCode(0x59, 'special')).toEqual({ kind: 'notehead', head: 'half' });
     expect(classifySonataCode(0x7b, 'special')).toEqual({ kind: 'brace' });
     expect(classifySonataCode(0xaa, 'special')).toEqual({ kind: 'dot' });
+    expect(classifySonataCode(0xdc, 'special')).toEqual({ kind: 'clefOctave', digit: 8 });
+    expect(classifySonataCode(0xdd, 'special')).toEqual({ kind: 'clefOctave', digit: 15 });
     expect(classifySonataCode(0x56, 'special')).toEqual({ kind: 'other' });
     expect(classifySonataCode(0x3f, 'special')).toEqual({ kind: 'other' });
     expect(classifySonataCode(0x66, 'specialExtra')).toEqual({ kind: 'notehead', head: 'black' });

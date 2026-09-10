@@ -24,9 +24,13 @@ export function middleLineDiatonic(clef: ClefKind, clefOctave = 0): number {
   return d + 7 * clefOctave;
 }
 
-/** Step = half-spaces above the middle line (negative below). */
-export function stepToDiatonic(step: number, clef: ClefKind, clefOctave = 0): number {
-  return middleLineDiatonic(clef, clefOctave) + step;
+/**
+ * Step = half-spaces above the middle line (negative below). `clefShift` is how
+ * many half-spaces the clef sits above its standard line (soprano, mezzo,
+ * baritone, French violin, sub-bass clefs); 0 for the usual positions.
+ */
+export function stepToDiatonic(step: number, clef: ClefKind, clefOctave = 0, clefShift = 0): number {
+  return middleLineDiatonic(clef, clefOctave) - clefShift + step;
 }
 
 export function diatonicToMidi(diatonic: number, alteration = 0): number {

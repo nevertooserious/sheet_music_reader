@@ -167,6 +167,48 @@ export function detectStaves(paths: PathShape[], page: number): Staff[] {
   return staves.sort((a, b) => a.top - b.top);
 }
 
+/**
+ * Single-line (rhythm / percussion) staves: a long thin line that is not part
+ * of a 5-line staff and carries a percussion clef at its left end. The staff
+ * gets a virtual 5-line band around the drawn line so pitch, time-signature
+ * and glyph-assignment logic work unchanged.
+ */
+export function detectSingleLineStaves(
+  paths: PathShape[],
+  page: number,
+  staves: Staff[],
+  percussionClefs: Array<{ x: number; y: number }>,
+  fallbackSpace = 4,
+): Staff[] {
+  if (!percussionClefs.length) return [];
+  const sorted = (xs: number[]): number[] => [...xs].sort((a, b) => a - b);
+  const median = (xs: number[]): number => sorted(xs)[Math.floor(xs.length / 2)];
+  const space = staves.length ? median(staves.map((s) => s.space)) : fallbackSpace;
+  const minLength = staves.length ? 0.5 * median(staves.map((s) => s.x2 - s.x1)) : 20 * space;
+  const lines = mergeCollinear(horizontalLines(paths)).filter((l) => l.x2 - l.x1 >= minLength && l.thickness <= 0.4 * space);
+  const out: Staff[] = [];
+  for (const l of lines) {
+    const insideStaff = staves.some((s) => l.y >= s.top - 0.5 * space && l.y <= s.bottom + 0.5 * space && l.x1 < s.x2 && l.x2 > s.x1);
+    if (insideStaff) continue;
+    const clef = percussionClefs.find((c) => c.x >= l.x1 - 2 * space && c.x <= l.x1 + 8 * space && Math.abs(c.y - l.y) <= 2.5 * space);
+    if (!clef) continue;
+    if (out.some((s) => Math.abs(s.lines[2] - l.y) < space)) continue;
+    out.push({
+      page,
+      lines: [l.y - 2 * space, l.y - space, l.y, l.y + space, l.y + 2 * space],
+      top: l.y - 2 * space,
+      bottom: l.y + 2 * space,
+      x1: l.x1,
+      x2: l.x2,
+      space,
+      index: 0,
+      system: -1,
+      lineCount: 1,
+    });
+  }
+  return out;
+}
+
 function connected(upper: Staff, lower: Staff, verticals: VLine[]): boolean {
   const sp = Math.max(upper.space, lower.space);
   return verticals.some(

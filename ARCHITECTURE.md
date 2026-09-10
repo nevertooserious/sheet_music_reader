@@ -179,13 +179,19 @@ MIDI is not unfolded (129 + 75 notes).
 - Vector extraction with full graphics-state tracking (CTM, text matrix,
   save/restore, font size).
 - Emmentaler, SMuFL and Sonata-layout (Opus / Opus Special / Maestro) glyph
-  adapters; unknown music fonts → clear error naming the font.
+  adapters. A PDF whose only music font is a known but unsupported legacy font
+  fails with an error naming it; a PDF with no recognised music glyphs at all
+  fails as "looks scanned".
 - Staves, systems, clefs (G/F/C incl. octave variants), key signatures,
   accidentals with measure-scoped memory, time signatures, noteheads (whole /
   half / black), stems, flags, beams, dots, rests, ties (merge durations),
   chords (same-x heads), grace notes (small fonts), barlines and repeats,
   basic multi-voice fallback (stem direction).
 - Emits `layout` for every note and measure so the UI can highlight.
+- Single-line percussion staves (a long line with a percussion clef at its
+  left end) get a virtual five-line band; staves map to tracks by kind (rhythm
+  line, drum staff, pitched staff) and vertical order, so choral scores whose
+  percussion lines come and go keep their voices together.
 - Clear error for raster PDFs; warnings for anything skipped.
 
 ## Process rules (from the brief)

@@ -94,6 +94,7 @@ export type MusicGlyphKind =
   | 'digit'
   | 'tuplet'
   | 'timesig'
+  | 'clefOctave'
   | 'barline'
   | 'brace'
   | 'ornament'
@@ -115,6 +116,7 @@ export interface MusicGlyph {
   restQn?: number;
   /** Number of flags (1 = eighth). */
   flags?: number;
+  /** Digit value; for 'clefOctave' marks the printed octave number (8 or 15). */
   digit?: number;
   timesig?: [number, number];
   barline?: BarlineGlyph;
@@ -137,6 +139,8 @@ export interface Staff {
   /** Position within its system (0 = top). */
   index: number;
   system: number;
+  /** Lines actually drawn (5 by default); a 1-line percussion staff keeps a virtual 5-line band in `lines`. */
+  lineCount?: number;
 }
 
 export interface System {
