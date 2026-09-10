@@ -31,7 +31,8 @@ if (!name) {
   console.error('usage: showcase.mjs <ui|parsing|audio>');
   process.exit(2);
 }
-const url = `${args.url || DEFAULT_URL}/?showcase=${encodeURIComponent(name)}`;
+// --query "pdf=/some.pdf&pages=1,2" forwards extra parameters to the showcase (e.g. an alternative PDF).
+const url = `${args.url || DEFAULT_URL}/?showcase=${encodeURIComponent(name)}${args.query ? `&${args.query}` : ''}`;
 const outDir = ensureDir(args.out || `tools/verify/out/showcase-${name}`);
 // Step labels change between rounds; a screenshot left over from an older numbering would mislead a critic.
 for (const f of fs.readdirSync(outDir)) if (/^\d{2}-.*\.png$/.test(f)) fs.unlinkSync(path.join(outDir, f));

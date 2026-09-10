@@ -10,6 +10,17 @@ import { buildSyntheticPage, drawSyntheticPage } from './syntheticScene';
 const FIXTURE_PDF = '/fixtures/bach-minuet-g.pdf';
 const FIXTURE_MID = '/fixtures/bach-minuet-g.mid';
 
+/**
+ * ?pdf=<url>&pages=313,324&page=1 stages the scene on another engraved PDF
+ * (e.g. a Sibelius export) instead of the bundled fixture; the MIDI comparison
+ * step then reports that no reference exists.
+ */
+const query = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+const SOURCE_PDF = query.get('pdf') || FIXTURE_PDF;
+const CUSTOM_SOURCE = SOURCE_PDF !== FIXTURE_PDF;
+const SOURCE_PAGES = (query.get('pages') || '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+const SOURCE_NAME = decodeURIComponent(SOURCE_PDF.split('/').pop() || 'score.pdf');
+
 const TRACK_COLORS = ['#4cc2ff', '#ffb454', '#57d38c', '#ff6b6b', '#c58cff', '#ffd166'];
 const KIND_COLORS: Record<string, string> = {
   clef: '#c58cff',
@@ -130,7 +141,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
   let renderedScene: SceneKind | undefined;
   let synthetic: SyntheticScene | undefined;
 
-  const pageIndex = 0;
+  const pageIndex = Math.max(0, Number(query.get('page') || 0) || 0);
   const sceneOf = (step: number): SceneKind => (step === SYNTHETIC_STEP ? 'synthetic' : 'fixture');
 
   const loadSynthetic = (): SyntheticScene => {
@@ -147,12 +158,13 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     if (!loadPromise) {
       loadPromise = (async () => {
         const t0 = performance.now();
-        const res = await fetch(FIXTURE_PDF);
+        const res = await fetch(SOURCE_PDF);
         if (!res.ok) throw new Error(`Fixture fetch failed: HTTP ${res.status}`);
         const data = await res.arrayBuffer();
         const fetchMs = Math.round(performance.now() - t0);
-        const document = await parser.parse(data, { fileName: 'bach-minuet-g.pdf' });
-        loaded = { document, score: document.score, debug: document.debug as ParsingDebug, pageInfo: document.pages[pageIndex], fetchMs };
+        const document = await parser.parse(data, { fileName: SOURCE_NAME, pages: SOURCE_PAGES.length ? SOURCE_PAGES : undefined });
+        const pageInfo = document.pages[Math.min(pageIndex, document.pages.length - 1)];
+        loaded = { document, score: document.score, debug: document.debug as ParsingDebug, pageInfo, fetchMs };
         return loaded;
       })().catch((err) => {
         lastError = err instanceof Error ? err.message : String(err);
@@ -530,7 +542,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       return nodes;
     }
     nodes.push(el('h1', undefined, l?.score.title ?? 'Parsing showcase'));
-    nodes.push(el('div', 'psc-sub', l ? `${l.score.composer ?? 'Unknown composer'} · ${l.score.source.fileName}` : FIXTURE_PDF));
+    nodes.push(el('div', 'psc-sub', l ? `${l.score.composer ?? 'Unknown composer'} · ${l.score.source.fileName}` : SOURCE_PDF));
     return nodes;
   };
 
@@ -645,6 +657,10 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
 
   const sectionComparison = (): HTMLElement[] => {
     const nodes: HTMLElement[] = [el('h2', undefined, 'Comparison to reference MIDI')];
+    if (CUSTOM_SOURCE) {
+      nodes.push(el('div', 'psc-muted', `No reference MIDI for ${SOURCE_NAME}; the bundled fixture is the only scored comparison.`));
+      return nodes;
+    }
     if (!comparison) {
       nodes.push(el('div', 'psc-muted', 'Not compared yet'));
       return nodes;
@@ -816,7 +832,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       view = l;
       if (index === 0 || pageCanvas.width === 0 || renderedScene !== 'fixture') await renderScene('fixture');
       else await renderChain;
-      if (index === 5) {
+      if (index === 5 && !CUSTOM_SOURCE) {
         if (!reference) {
           const res = await fetch(FIXTURE_MID);
           if (!res.ok) throw new Error(`Reference MIDI fetch failed: HTTP ${res.status}`);

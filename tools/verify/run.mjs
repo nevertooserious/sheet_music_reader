@@ -142,15 +142,19 @@ try {
       window.__smr.engine.clearScheduledLog();
     }, tempo);
     await page.evaluate(() => window.__smr.controller.play());
-    const playT0 = Date.now();
-    await sleep(2000);
+    await sleep(1000);
+    // Rate over a sampled window, so audio-device start-up latency on a loaded machine does not count against the clock.
+    const rateT0 = Date.now();
+    const p0 = await page.evaluate(() => window.__smr.engine.getState().positionQn);
+    await sleep(1000);
     const fps = await measureFps(page, 800);
     report.perf.playingFps = fps;
     await snap(page, '03-playing');
     const t1 = await page.evaluate(() => window.__smr.engine.getState());
-    const elapsedQn = ((Date.now() - playT0) / 1000) * (tempo / 60);
-    check('transport is playing and advancing', t1.playing && t1.positionQn > 1 && Math.abs(t1.positionQn - elapsedQn) < 1.5, {
-      note: `position ${t1.positionQn.toFixed(2)} qn after ${(elapsedQn).toFixed(2)} qn wall time, ctx ${t1.contextState}`,
+    const rateQnPerSec = (t1.positionQn - p0) / ((Date.now() - rateT0) / 1000);
+    const expectedRate = tempo / 60;
+    check('transport is playing and advancing', t1.playing && t1.positionQn > 1 && Math.abs(rateQnPerSec - expectedRate) < expectedRate * 0.15, {
+      note: `position ${t1.positionQn.toFixed(2)} qn, advancing at ${rateQnPerSec.toFixed(2)} qn/s (expected ${expectedRate.toFixed(2)}), ctx ${t1.contextState}`,
     });
     check('audio context running', t1.contextState === 'running', { note: t1.contextState });
     check('playback fps >= 30', fps.fps >= 30, { note: `${fps.fps} fps, longest frame ${fps.longestFrameMs} ms` });

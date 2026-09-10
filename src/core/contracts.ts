@@ -22,6 +22,12 @@ export interface ParseOptions {
   onProgress?: (progress: ParseProgress) => void;
   /** Expand repeat barlines into the playback timeline. Default true. */
   unfoldRepeats?: boolean;
+  /**
+   * 1-based PDF page numbers to read, in order; default all pages. The
+   * resulting ScoreDocument.pages are indexed 0..n-1 in this order and
+   * renderPage(i) draws the i-th selected page.
+   */
+  pages?: number[];
 }
 
 export interface ScoreDocument {

@@ -24,15 +24,15 @@ function describeOpenError(err: unknown, fileName: string): string {
   return `"${fileName}" could not be opened as a PDF: ${message}`;
 }
 
-function createDocument(doc: PDFDocumentProxy, base: Omit<ScoreDocument, 'renderPage' | 'dispose'>): ScoreDocument {
+function createDocument(doc: PDFDocumentProxy, pageNumbers: number[], base: Omit<ScoreDocument, 'renderPage' | 'dispose'>): ScoreDocument {
   const inflight = new WeakMap<HTMLCanvasElement, RenderTask>();
   let disposed = false;
   return {
     ...base,
     async renderPage(pageIndex, canvas, scale) {
       if (disposed) throw new Error('Document disposed');
-      if (pageIndex < 0 || pageIndex >= doc.numPages) throw new Error(`Page ${pageIndex + 1} does not exist`);
-      const page = await doc.getPage(pageIndex + 1);
+      if (pageIndex < 0 || pageIndex >= pageNumbers.length) throw new Error(`Page ${pageIndex + 1} does not exist`);
+      const page = await doc.getPage(pageNumbers[pageIndex]);
       const viewport = page.getViewport({ scale });
       inflight.get(canvas)?.cancel();
       canvas.width = Math.max(1, Math.ceil(viewport.width));
@@ -79,9 +79,11 @@ export function createParser(): ScoreParser {
       try {
         const pages: PageExtraction[] = [];
         const infos: PageInfo[] = [];
-        for (let i = 0; i < doc.numPages; i++) {
-          progress(0.05 + (0.45 * i) / doc.numPages, `Reading page ${i + 1} of ${doc.numPages}`);
-          const page = await doc.getPage(i + 1);
+        const requested = options.pages?.filter((n) => Number.isInteger(n) && n >= 1 && n <= doc.numPages);
+        const pageNumbers = requested && requested.length ? requested : Array.from({ length: doc.numPages }, (_, i) => i + 1);
+        for (let i = 0; i < pageNumbers.length; i++) {
+          progress(0.05 + (0.45 * i) / pageNumbers.length, `Reading page ${pageNumbers[i]} of ${doc.numPages}`);
+          const page = await doc.getPage(pageNumbers[i]);
           const viewport = page.getViewport({ scale: 1 });
           infos.push({ index: i, width: viewport.width, height: viewport.height });
           pages.push(await extractPdfPage(page, i, pdfjs.OPS as unknown as Record<string, number>));
@@ -105,7 +107,7 @@ export function createParser(): ScoreParser {
           },
         };
         progress(1, 'Done');
-        return createDocument(doc, { score, pages: infos, debug: parsingDebug });
+        return createDocument(doc, pageNumbers, { score, pages: infos, debug: parsingDebug });
       } catch (err) {
         await doc.destroy().catch(() => undefined);
         throw err instanceof Error ? err : new Error(String(err));

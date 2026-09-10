@@ -10,6 +10,7 @@ import type {
   Point,
   TextRun,
 } from './model';
+import { SONATA_FONT, sonataVariant } from './sonata';
 
 /** The subset of a pdf.js PDFPageProxy + operator list that extraction needs. */
 export interface OperatorListLike {
@@ -25,6 +26,7 @@ export interface FontLike {
   fontMatrix?: ArrayLike<number>;
   isType3Font?: boolean;
   composite?: boolean;
+  type?: string;
 }
 
 export interface PageLike {
@@ -72,14 +74,15 @@ function scaleOf(m: Matrix): number {
   return Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
 }
 
-const SMUFL_FONT = /bravura|leland|mscore|petaluma|gootville|finale(maestro|broadway|ash|jazz)|sebastian|leipzig|musejazz|campania|november|beethoven|dorico|ekmelos|lilyjazz/i;
-const LEGACY_MUSIC_FONT = /^(opus|maestro|sonata|jazz|inkpen|petrucci|engraver|golden ?age|reprise|helsinki)/i;
+const SMUFL_FONT = /bravura|leland(?!ia)|mscore|petaluma|gootville|finale(maestro|broadway|ash|jazz)|sebastian|leipzig|musejazz|campania|november|beethoven|dorico|ekmelos|lilyjazz/i;
+const LEGACY_MUSIC_FONT = /^(musisync|musiqwik|musicalsymbols|bach|tamburo|anastasia)/i;
 
 export function classifyFontFamily(name: string): FontFamily {
   if (/emmentaler|feta|parmesan|gonville|lilyjazz/i.test(name)) return 'emmentaler';
   if (/text$/i.test(name) && SMUFL_FONT.test(name)) return 'text';
-  if (LEGACY_MUSIC_FONT.test(name)) return 'legacy-music';
   if (SMUFL_FONT.test(name)) return 'smufl';
+  if (SONATA_FONT.test(name)) return sonataVariant(name) === 'ignore' ? 'text' : 'sonata';
+  if (LEGACY_MUSIC_FONT.test(name)) return 'legacy-music';
   return 'text';
 }
 
@@ -156,13 +159,13 @@ export function extractPage(page: PageLike): PageExtraction {
     return info;
   };
 
-  const glyphName = (font: FontLike | undefined, code: number): string | undefined => {
-    if (!font) return undefined;
+  const glyphName = (font: FontLike | undefined, code: number): { name?: string; fromDifferences: boolean } => {
+    if (!font) return { fromDifferences: false };
     const diff = font.differences as Record<string, string> | undefined;
     const fromDiff = diff ? diff[code] : undefined;
-    if (fromDiff) return fromDiff;
+    if (fromDiff) return { name: fromDiff, fromDifferences: true };
     const enc = font.defaultEncoding;
-    return enc ? enc[code] : undefined;
+    return { name: enc ? enc[code] : undefined, fromDifferences: false };
   };
 
   const flushRun = (): void => {
@@ -311,13 +314,16 @@ export function extractPage(page: PageLike): PageExtraction {
         currentRun.right = origin.x + advance;
         currentRun.size = Math.max(currentRun.size, size);
       } else {
+        const named = glyphName(font, code);
         glyphs.push({
           page: page.index,
           fontId: gs.fontId,
           fontName: info.name,
           family: info.family,
           code,
-          name: glyphName(font, code),
+          name: named.name,
+          nameFromDifferences: named.fromDifferences,
+          fontType: font?.type,
           unicode: item.unicode,
           x: origin.x,
           y: origin.y,

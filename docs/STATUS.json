@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-10T14:05:00+10:00",
+  "updatedAt": "2026-09-10T15:20:00+10:00",
   "passThreshold": 8.5,
   "maxRoundsPerModule": 4,
   "workflow": {
@@ -263,5 +263,19 @@
     "unitTests": "264 passed / 26 files"
   },
   "allPass": true,
-  "weakestModule": "parsing"
+  "weakestModule": "parsing",
+  "changes": [
+    {
+      "date": "2026-09-10",
+      "module": "parsing",
+      "title": "Sonata-layout legacy fonts: Opus, Opus Special, Opus Special Extra, Inkpen2, Helsinki, Reprise, Norfolk, Pori, Lelandia, Maestro, Petrucci, Engraver, Jazz, Sonata",
+      "evidence": "src/parsing/sonata.test.ts (unit) + src/parsing/sonata.external.test.ts against Sibelius 8 Reference Guide pages (skipped when the PDF is absent); page 336 examples parse note-for-note incl. dotted quarters and a tie across a barline",
+      "openIssues": [
+        "No public-domain Sibelius-exported score with reference MIDI in the repo (IMSLP/CPDL downloads are behind interactive disclaimers)",
+        "TrueType/CID-encoded Sibelius exports exercised only through unit tests, not a real file",
+        "Slash noteheads (Opus Special 0x56/0x3F/0x55) are ignored by design; hollow special noteheads are read as half notes even when stemless (whole)"
+      ],
+      "criticReport": "docs/critic-reports/parsing-opus-fonts.md (pending)"
+    }
+  ]
 }

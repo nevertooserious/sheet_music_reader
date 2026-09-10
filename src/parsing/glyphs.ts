@@ -1,5 +1,6 @@
 import type { ClefKind } from '../core/types';
 import type { ClassifiedGlyph, GlyphPlacement, MusicGlyph } from './model';
+import { classifySonata } from './sonata';
 
 const DIGIT_NAMES: Record<string, number> = {
   zero: 0,
@@ -157,6 +158,7 @@ export function classifySmufl(codePoint: number): MusicGlyph | undefined {
 }
 
 export function classifyGlyph(glyph: GlyphPlacement): MusicGlyph | undefined {
+  if (glyph.family === 'sonata') return classifySonata(glyph);
   if (glyph.family === 'emmentaler') {
     if (glyph.name) return classifyEmmentaler(glyph.name);
     return { kind: 'other' };

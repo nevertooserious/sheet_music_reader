@@ -19,8 +19,13 @@ pdf.js instead of doing pixel-level optical music recognition:
    `defaultEncoding` from pdf.js with `fontExtraProperties: true`).
    Emmentaler (LilyPond) uses names such as `noteheads.s2`, `clefs.G`,
    `accidentals.sharp`, `rests.2`, `flags.u3`; SMuFL fonts (Bravura, Leland,
-   MScore) use Private-Use-Area code points. A font adapter maps either to a
-   common glyph vocabulary.
+   MScore) use Private-Use-Area code points; Sonata-layout legacy fonts
+   (Sibelius' Opus, Opus Special, Inkpen2, Helsinki, Reprise and their
+   Norfolk/Pori/Lelandia replacements, Finale's Maestro, Petrucci, Engraver,
+   Jazz, Adobe Sonata) are keyed by their original 8-bit code, recovered from
+   `uniF0XX` or MacRoman glyph names, PUA code points or the raw byte
+   (`src/parsing/sonata.ts`). A font adapter maps each family to a common
+   glyph vocabulary.
 3. Detect staves (five equally spaced horizontal lines), group them into
    systems, assign glyphs to staves, read clefs / key / time signatures,
    split by barlines into measures, and derive pitch (vertical position +
@@ -127,7 +132,14 @@ screenshot taken by the agent.
 - `npm run verify:showcase -- <module>` → `tools/verify/showcase.mjs`: opens
   the module showcase, screenshots the initial scene and every tutorial step,
   records fps, perf, console errors and diagnostics to
-  `tools/verify/out/showcase-<module>/report.json`.
+  `tools/verify/out/showcase-<module>/report.json`. `--query "pdf=<url>&pages=313,336&page=1"`
+  stages the parsing showcase on another engraved PDF served by Vite (the
+  MIDI comparison step then reports that no reference exists).
+- Opus fonts are exercised by `src/parsing/sonata.external.test.ts` against the
+  Sibelius 8 Reference Guide (Avid's copyright, not bundled; drop it at
+  `tools/verify/out/opus/sib8-reference.pdf` or set `SMR_SIBELIUS_PDF`), whose
+  engraved examples embed OpusStd / OpusSpecialStd. The suite is skipped when
+  the file is absent.
 - Unit tests: `npm test` (vitest) for pure logic (glyph classification, pitch
   math, scheduler math, comparison utilities).
 
@@ -166,7 +178,8 @@ MIDI is not unfolded (129 + 75 notes).
 - pdf.js in the browser (worker via Vite `?url` import), `fontExtraProperties: true`.
 - Vector extraction with full graphics-state tracking (CTM, text matrix,
   save/restore, font size).
-- Emmentaler and SMuFL glyph adapters; unknown fonts → warning.
+- Emmentaler, SMuFL and Sonata-layout (Opus / Opus Special / Maestro) glyph
+  adapters; unknown music fonts → clear error naming the font.
 - Staves, systems, clefs (G/F/C incl. octave variants), key signatures,
   accidentals with measure-scoped memory, time signatures, noteheads (whole /
   half / black), stems, flags, beams, dots, rests, ties (merge durations),

@@ -15,7 +15,8 @@ export interface BBox {
   maxY: number;
 }
 
-export type FontFamily = 'emmentaler' | 'smufl' | 'legacy-music' | 'text';
+/** 'sonata' = Sonata-layout legacy fonts (Opus, Inkpen2, Maestro, ...); 'legacy-music' = other unsupported music fonts. */
+export type FontFamily = 'emmentaler' | 'smufl' | 'sonata' | 'legacy-music' | 'text';
 
 export interface FontInfo {
   id: string;
@@ -33,6 +34,10 @@ export interface GlyphPlacement {
   code: number;
   /** Glyph name from the font's Differences array or base encoding, when known. */
   name?: string;
+  /** True when `name` came from an explicit Differences array rather than a default encoding. */
+  nameFromDifferences?: boolean;
+  /** pdf.js font type, e.g. "Type1", "TrueType", "CIDFontType0". */
+  fontType?: string;
   unicode?: string;
   /** Glyph origin on the page. */
   x: number;

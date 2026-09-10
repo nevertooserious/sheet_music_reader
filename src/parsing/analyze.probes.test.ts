@@ -243,7 +243,7 @@ describe('fonts', () => {
     const legacy = (code: number, x: number): GlyphPlacement => ({
       page: 0,
       fontId: 'f9',
-      fontName: 'Maestro',
+      fontName: 'MusiSync',
       family: 'legacy-music',
       code,
       unicode: String.fromCharCode(code),
@@ -252,8 +252,8 @@ describe('fonts', () => {
       advance: 8,
       size: EM,
     });
-    const p = page([legacy(38, 40), legacy(113, 100)], [...staffPaths(), barline(360)], { fonts: [{ id: 'f9', name: 'Maestro', family: 'legacy-music' }] });
-    expect(() => analyze([p], { fileName: 'old.pdf' })).toThrow(legacyFontError('old.pdf', 'Maestro'));
+    const p = page([legacy(38, 40), legacy(113, 100)], [...staffPaths(), barline(360)], { fonts: [{ id: 'f9', name: 'MusiSync', family: 'legacy-music' }] });
+    expect(() => analyze([p], { fileName: 'old.pdf' })).toThrow(legacyFontError('old.pdf', 'MusiSync'));
     const scan = page([], [rect(0, 0, 400, 300)], { fonts: [], imageCount: 1 });
     expect(() => analyze([scan], { fileName: 'scan.pdf' })).toThrow(RASTER_ERROR);
   });
