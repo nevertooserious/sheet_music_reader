@@ -182,8 +182,12 @@ try {
       note: `position ${t2.positionQn.toFixed(2)} qn, expected ~${expectedPos.toFixed(2)}`,
     });
     const log2 = await page.evaluate(() => window.__smr.engine.getScheduledLog());
-    check('notes scheduled after seek come from seek region', log2.length > 0 && log2.every((n) => n.qn >= mid - 0.01), {
-      note: `${log2.length} notes, min qn ${log2.length ? Math.min(...log2.map((n) => n.qn)).toFixed(2) : 'n/a'}`,
+    // A note that was already sounding at the seek point is legitimately (re)started there, logged with its own startQn.
+    const spansSeek = (n) =>
+      score.tracks.some((t) => t.id === n.trackId && t.notes.some((s) => s.midi === n.midi && Math.abs(s.startQn - n.qn) < 0.005 && s.startQn < mid && s.startQn + s.durationQn > mid + 0.01));
+    const heldAcrossSeek = log2.filter((n) => n.qn < mid - 0.01 && spansSeek(n)).length;
+    check('notes scheduled after seek come from seek region', log2.length > 0 && log2.every((n) => n.qn >= mid - 0.01 || spansSeek(n)), {
+      note: `${log2.length} notes, min qn ${log2.length ? Math.min(...log2.map((n) => n.qn)).toFixed(2) : 'n/a'}, ${heldAcrossSeek} held across the seek point`,
     });
 
     // Tempo change while playing.

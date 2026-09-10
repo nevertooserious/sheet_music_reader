@@ -55,9 +55,19 @@ export interface ScheduledNote {
   midi: number;
   /** AudioContext time the note starts. */
   time: number;
-  /** The scheduled NoteEvent's `startQn`, unchanged (the verifier matches trackId + midi + qn to two decimals). */
+  /**
+   * The scheduled NoteEvent's `startQn`, unchanged (the verifier matches
+   * trackId + midi + qn to two decimals). A note joined mid-way after a seek,
+   * resume or offline start inside it keeps `qn = startQn`; `durationSeconds`
+   * is then the remaining sounding time, not the note's full length.
+   */
   qn: number;
   durationSeconds: number;
+  /**
+   * Velocity-mapped peak amplitude of the voice envelope (0..1) before track
+   * and master gain; a muted track still schedules its notes so unmuting
+   * mid-note is audible.
+   */
   gain: number;
 }
 
@@ -66,7 +76,12 @@ export interface OfflineRenderOptions {
   toQn: number;
   tempoBpm: number;
   sampleRate?: number;
-  /** Track ids to include; default all unmuted. */
+  /**
+   * Track ids to include. When given, exactly these tracks are rendered at
+   * their fader gain regardless of mute/solo (the caller is choosing what to
+   * hear); when omitted, every track is rendered at its live effective gain,
+   * i.e. mute and solo apply.
+   */
   trackIds?: string[];
 }
 
@@ -81,6 +96,9 @@ export interface AudioEngine {
    * Resumes the AudioContext (must be called from a user gesture in browsers)
    * and starts from the current position; at the end of the score it restarts
    * from 0. No-op without a loaded score. Reaching `durationQn` pauses there.
+   * Resolves (never rejects) once playback has started or the context has
+   * failed to reach 'running'; in the latter case `getState().playing` stays
+   * false and a later play() retries.
    */
   play(): Promise<void>;
   pause(): void;

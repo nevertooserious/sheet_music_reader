@@ -36,7 +36,7 @@ import {
   type MeasureRegion,
   type VLine,
 } from './staves';
-import { buildTimeline, timelineDuration } from './timeline';
+import { buildTimeline, extendEndings, timelineDuration } from './timeline';
 import { detectTuplets, parseTupletText, type TupletGroup, type TupletItem, type TupletLabel } from './tuplets';
 
 export const RASTER_ERROR = 'This PDF looks scanned; only engraved (vector) PDFs are supported.';
@@ -1206,10 +1206,10 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
   if (!timeSignatures.length) warn('No time signature found; measure lengths were taken from the note durations.');
 
   progress(0.85, 'Building timeline');
-  const timeline = buildTimeline(
+  const repeatMeasures = extendEndings(
     measures.map((m) => ({ durationQn: m.durationQn, repeatStart: m.region.repeatStart, repeatEnd: m.region.repeatEnd, volta: m.volta })),
-    opts.unfoldRepeats !== false,
   );
+  const timeline = buildTimeline(repeatMeasures, opts.unfoldRepeats !== false);
   const durationQn = timelineDuration(timeline);
   const occurrences = new Map<number, number[]>();
   for (const seg of timeline) {
@@ -1231,10 +1231,11 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
     });
   }
 
-  const scoreMeasures: Measure[] = measures.map((m) => ({
+  const scoreMeasures: Measure[] = measures.map((m, i) => ({
     index: m.index,
     durationQn: m.durationQn,
     firstStartQn: occurrences.get(m.index)?.[0] ?? 0,
+    volta: repeatMeasures[i].volta,
     layout: m.system.staves.map((s) => ({
       page: s.page,
       x: m.region.x1,

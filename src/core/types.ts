@@ -37,7 +37,12 @@ export interface NoteEvent {
   durationQn: number;
   /** 0..1 */
   velocity: number;
-  /** Index into ScoreModel.measures (the printed measure this note came from). */
+  /**
+   * Index into ScoreModel.measures: the measure whose time span contains
+   * `startQn` (normally the printed measure of the head). A grace note printed
+   * at the start of a bar borrows the end of the previous bar and is filed
+   * under that previous bar; its `layout` then lies in the next measure's box.
+   */
   measure: number;
   /** Position of the notehead on the page, for playhead highlighting. */
   layout?: LayoutPoint;
@@ -71,6 +76,8 @@ export interface Measure {
   /** Barline decorations for playback and display. */
   repeatStart?: boolean;
   repeatEnd?: boolean;
+  /** Passes on which this measure is played when it sits under a volta bracket (e.g. [1] or [2]); absent = every pass. */
+  volta?: number[];
 }
 
 /** One entry per measure occurrence on the unfolded playback timeline. */

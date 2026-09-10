@@ -8,6 +8,7 @@
  * <out>/report.json with console errors, per-step timings, diagnostics and
  * perf. Exit code 1 on console errors, step failures, or missing showcase.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_URL,
@@ -32,6 +33,8 @@ if (!name) {
 }
 const url = `${args.url || DEFAULT_URL}/?showcase=${encodeURIComponent(name)}`;
 const outDir = ensureDir(args.out || `tools/verify/out/showcase-${name}`);
+// Step labels change between rounds; a screenshot left over from an older numbering would mislead a critic.
+for (const f of fs.readdirSync(outDir)) if (/^\d{2}-.*\.png$/.test(f)) fs.unlinkSync(path.join(outDir, f));
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 const report = { name, url, startedAt: new Date().toISOString(), steps: [], screenshots: [], pass: false };

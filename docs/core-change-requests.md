@@ -29,7 +29,7 @@ doc comment: scale = PDF points → device px, implementation sets bitmap size o
 and mirrored in ARCHITECTURE.md "Contracts". The UI's `canvas.style.width/height = '100%'` after render
 is now redundant but harmless and was left in place.
 
-## audio — Pin down `ScheduledNote.gain` and the `renderOffline` `trackIds` semantics   (status: open)
+## audio — Pin down `ScheduledNote.gain` and the `renderOffline` `trackIds` semantics   (status: applied)
 Why: `ScheduledNote.gain` has no unit in `contracts.ts`, and `OfflineRenderOptions.trackIds`
 says only "Track ids to include; default all unmuted". The engine had to pick a meaning for
 both; writing it into the contract stops the verifier, UI and a future engine from guessing.
@@ -43,8 +43,12 @@ Change: in `src/core/contracts.ts`
   solo apply."
 Workaround used meanwhile: `src/audio/engine.ts` implements exactly these semantics and
 documents them in its `renderOffline` comment; the verifier's checks pass either way.
+Outcome (integrator, Integrate 2): both doc comments applied verbatim in `src/core/contracts.ts`
+(`ScheduledNote.gain`, `OfflineRenderOptions.trackIds`) and mirrored in ARCHITECTURE.md "Contracts".
+No module change needed; `tools/verify/run.mjs` already passes `trackIds: [firstTrack]` and expects the
+fader-gain reading (solo RMS below the full mix).
 
-## audio — Scheduled-log entries for notes joined mid-way (seek/resume inside a held note)   (status: open)
+## audio — Scheduled-log entries for notes joined mid-way (seek/resume inside a held note)   (status: applied)
 Why: The engine now starts notes that are already sounding at the position a seek, resume or
 offline render begins from (e.g. a 2-qn bass chord when playback resumes at 0.5 qn), joining the
 envelope part-way instead of dropping the note. Such a voice is really scheduled, so it is logged
@@ -59,8 +63,14 @@ Change: in `tools/verify/run.mjs`, accept log entries whose note spans the seek 
   Optionally document in `contracts.ts` (`ScheduledNote`): "A note joined mid-way after a seek keeps
   `qn = startQn`; `durationSeconds` is the remaining sounding time."
 Workaround used meanwhile: none needed for the fixture; documented here so the semantics are explicit.
+Outcome (integrator, Integrate 2): `tools/verify/run.mjs` "notes scheduled after seek come from seek region"
+now accepts a log entry with `qn < mid` only when the score has a note with that trackId + midi + startQn
+whose span strictly contains the seek point (`startQn < mid && startQn + durationQn > mid + 0.01`); the note
+text reports how many such held notes were seen (0 on the fixture). `ScheduledNote.qn` in `contracts.ts`
+documents the joined-mid-way semantics (`qn = startQn`, `durationSeconds` = remaining time). Not a threshold
+change: an entry that neither starts at/after the seek point nor spans it still fails the check.
 
-## parsing — Document where a bar-start grace note is filed (`NoteEvent.measure`)   (status: open)
+## parsing — Document where a bar-start grace note is filed (`NoteEvent.measure`)   (status: applied)
 Why: `NoteEvent.measure` is documented as "the printed measure this note came from". A grace note printed
 at the very start of a bar sounds in the last eighth of the *previous* bar (LilyPond's MIDI does the same,
 and the reference MIDI expects it there). The parser files it under the bar whose time it occupies, so
@@ -74,8 +84,11 @@ measure of the head). A grace note printed at the start of a bar borrows the end
 is filed under that previous bar; its `layout` then lies in the next measure's box."
 Workaround used meanwhile: the convention is implemented and commented in `src/parsing/analyze.ts`
 (grace emission) and covered by `analyze.test.ts` ("treats a small head as a grace note").
+Outcome (integrator, Integrate 2): doc comment applied verbatim to `NoteEvent.measure` in `src/core/types.ts`
+and summarised in ARCHITECTURE.md "Core model". `tools/verify/compare.mjs` `printedOrderNotes` and the UI's
+anchor computation already rely on exactly this invariant (startQn inside the first segment of `measure`).
 
-## parsing — Optional `Measure.volta` for alternative endings   (status: open)
+## parsing — Optional `Measure.volta` for alternative endings   (status: applied)
 Why: the parser now detects volta brackets (1st/2nd endings) and unfolds them correctly into
 `ScoreModel.timeline` (the 1st ending is skipped on the repeat pass), but the model has no place to say
 which measures are endings, so the UI cannot label or dim them and a consumer cannot re-derive the
@@ -84,3 +97,11 @@ Change: in `src/core/types.ts`, `Measure` gains
 `/** Passes on which this measure is played when it sits under a volta bracket (e.g. [1] or [2]); absent = every pass. */ volta?: number[];`
 Workaround used meanwhile: voltas live only in the timeline and in `ScoreDocument.debug.measures[].volta`
 (shown by the parsing showcase); `Measure` objects carry no volta field.
+Outcome (integrator, Integrate 2): `volta?: number[]` added to `Measure` in `src/core/types.ts` with the requested
+doc comment and listed in ARCHITECTURE.md "Core model". So the field is not a dead declaration, the integrator
+made a three-line glue change in `src/parsing/analyze.ts` (recorded in docs/integration-notes.md): the repeat
+measures are passed through `extendEndings` once, the timeline is built from that list, and each `Measure` gets
+`volta` from it, so a continuation bar after a line-broken bracket carries the same passes as the bar that
+opened the ending. The fixture has no alternative endings (plain repeat barlines at measures 15/16/31), so on
+the demo every `volta` is undefined and the timeline is unchanged; the field is exercised by the synthetic
+two-line volta page (`src/parsing/syntheticScene.ts`, parsing showcase step 7). The UI does not yet read the field.

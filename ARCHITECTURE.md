@@ -56,8 +56,12 @@ import each other. `core/main.ts` is the only place the three meet.
 - **Layout**: PDF points, top-left origin, scale 1 (pdf.js viewport at scale 1).
 - `ScoreModel { tracks[], measures[], timeline[], timeSignatures[], keySignatures[], tempoBpm, durationQn, warnings[] }`
 - `Track { id, name, instrument, clef, staffIndex, notes: NoteEvent[], defaultGain }`
-- `NoteEvent { midi, startQn, durationQn, velocity, measure, layout? }`
-- `Measure { index, durationQn, layout: LayoutBox[] (one per staff), firstStartQn, repeatStart?, repeatEnd? }`
+- `NoteEvent { midi, startQn, durationQn, velocity, measure, layout? }` —
+  `measure` is the measure whose time span contains `startQn`; a grace note
+  printed at the start of a bar is filed under the previous bar (its `layout`
+  sits in the next bar's box).
+- `Measure { index, durationQn, layout: LayoutBox[] (one per staff), firstStartQn, repeatStart?, repeatEnd?, volta? }`
+  — `volta` lists the passes on which the measure plays under an alternative-ending bracket.
 - `TimelineSegment { measure, startQn, durationQn }` — playback order (repeats expanded).
 - `TransportState { playing, positionQn, tempoBpm, masterGain, tracks: TrackMixState[], contextState }`
 
@@ -75,11 +79,16 @@ import each other. `core/main.ts` is the only place the three meet.
   `load()` stops, rewinds to 0, adopts `score.tempoBpm` and builds one
   `TrackMixState` per track at `defaultGain`. `play()` resumes the AudioContext.
   Tempo changes apply immediately while playing. `getState()` reflects every
-  setter synchronously. `getScheduledLog()` records every note actually
-  scheduled (`qn` = the note's `startQn`) so the verifier can prove that what
-  plays is what was parsed. `renderOffline` renders a range to an `AudioBuffer`
-  for sound-level checks; its length is the range at the given tempo plus a
-  short release tail.
+  setter synchronously. `play()` resolves even when the context cannot start
+  (`playing` stays false; a later `play()` retries). `getScheduledLog()` records
+  every note actually scheduled (`qn` = the note's `startQn`, also for a note
+  joined mid-way after a seek, whose `durationSeconds` is then the remaining
+  part; `gain` = velocity-mapped peak before track/master gain) so the verifier
+  can prove that what plays is what was parsed. `renderOffline` renders a range
+  to an `AudioBuffer` for sound-level checks; its length is the range at the
+  given tempo plus a short release tail; an explicit `trackIds` list renders
+  exactly those tracks at fader gain (mute/solo ignored), no list = the live
+  mix.
 - `AppStore` (read) + `AppController` (write) are the **only** things the UI
   touches. The controller wraps the parser and engine. Loads go
   `loading` (previous score kept, playback paused) → `parsing` (previous score,
