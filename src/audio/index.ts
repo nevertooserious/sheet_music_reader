@@ -1,30 +1,7 @@
 import type { AudioEngine } from '../core/contracts';
-import { initialTransport } from '../core/store';
+import { createAudioEngine as createEngine } from './engine';
 
-/**
- * Factory for the Web Audio playback engine. Owned by the audio builder.
- * This stub is replaced in wave 2.
- */
+/** Factory for the Web Audio playback engine. The AudioContext is created lazily on the first play(). */
 export function createAudioEngine(): AudioEngine {
-  const notImplemented = () => {
-    throw new Error('audio module not implemented');
-  };
-  return {
-    load: () => undefined,
-    play: async () => notImplemented(),
-    pause: () => undefined,
-    stop: () => undefined,
-    seek: () => undefined,
-    setTempo: () => undefined,
-    setMasterGain: () => undefined,
-    setTrackGain: () => undefined,
-    setTrackMuted: () => undefined,
-    setTrackSolo: () => undefined,
-    getState: () => initialTransport,
-    subscribe: () => () => undefined,
-    getScheduledLog: () => [],
-    clearScheduledLog: () => undefined,
-    renderOffline: async () => notImplemented(),
-    dispose: () => undefined,
-  };
+  return createEngine();
 }

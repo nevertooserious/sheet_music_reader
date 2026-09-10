@@ -1,12 +1,18 @@
 {
-  "updatedAt": "2026-09-10T10:05:00+10:00",
+  "updatedAt": "2026-09-10T13:43:00+10:00",
   "passThreshold": 8.5,
   "maxRoundsPerModule": 4,
-  "workflow": { "runId": "wf_3b9ebb7e-3c4", "phase": "Wave 1: ui", "activeAgent": "build:ui r2" },
+  "workflow": {
+    "runId": "wf_3b9ebb7e-3c4",
+    "phase": "Integrate 2",
+    "activeAgents": [
+      "integrator 2"
+    ]
+  },
   "modules": {
     "ui": {
-      "score": 8.1,
-      "pass": false,
+      "score": 8.8,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
@@ -20,28 +26,177 @@
             "[major] Mixer hides tracks beyond two: strips overflow a fixed 300 px panel with no visible scroll affordance",
             "[major] Meter peak-hold marker is stuck at the top of every meter"
           ]
+        },
+        {
+          "round": 2,
+          "score": 8.8,
+          "pass": true,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/ui-round2.md",
+          "topIssues": [
+            "[minor] Busy state leaks the outgoing score while a new file loads",
+            "[minor] Follow mode overrides manual scrolling during playback",
+            "[minor] Sub-900 px layout squeezes the score view to 184 px",
+            "[minor] Render-failure text drawn under the overlay and failed pages never retried"
+          ]
         }
       ],
       "openIssues": [
-        "Score view renders every page eagerly at full DPR with no virtualisation",
-        "Mixer strips overflow a fixed 300 px panel with no scroll affordance beyond two tracks",
-        "Meter peak-hold marker stuck at 0 dBFS",
-        "Loading a new file while a score is displayed splits the score column",
-        "Tempo field keeps out-of-range typed value after clamping",
-        "Showcase mock page draws bar-1 noteheads over clef/key/time signature",
-        "Below ~900 px width controls are clipped",
-        "Follow mode does not re-centre on seek within current measure",
-        "devicePixelRatio changes not observed",
-        "Playhead x linear in measure fraction (will drift on real engraving)",
-        "Accessibility and disposal hygiene"
+        "minor: busy state leaks the outgoing score while a new file loads",
+        "minor: follow mode overrides manual scrolling during playback",
+        "minor: sub-900 px layout squeezes the score view to 184 px",
+        "minor: render-failure text drawn under the overlay; failed pages never retried"
       ]
     },
-    "parsing": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built (wave 2)"] },
-    "audio": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built (wave 2)"] },
-    "app": { "score": null, "pass": false, "rounds": [], "openIssues": ["not integrated"] }
+    "parsing": {
+      "score": 8.7,
+      "pass": true,
+      "rounds": [
+        {
+          "round": 1,
+          "score": 8.2,
+          "pass": false,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/parsing-round1.md",
+          "topIssues": [
+            "[major] Slurs whose two ends sit on the same pitch are merged as ties, dropping notes",
+            "[major] A mid-system clef change applies only inside the measure that contains it",
+            "[major] Collinear staff-line segments are never merged, so staff lines drawn per measure yield one staff per segment",
+            "[major] Every unattached accidental is read as a key-signature change",
+            "[minor] Legacy music fonts (Maestro/Opus/Sonata) get the 'looks scanned' error and their warning is lost"
+          ]
+        },
+        {
+          "round": 2,
+          "score": 8.3,
+          "pass": false,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/parsing-round2.md",
+          "topIssues": [
+            "[major] Fingering digits over a beam are read as tuplet numbers, and the new pickup rule hides the damage",
+            "[major] A chord whose accidentals are in circle-of-fifths order at a bar start is read as a key change",
+            "[major] Volta brackets that continue onto the next line break the unfolding",
+            "[minor] Key changes with cancellation naturals in the same system as the previous key are rejected",
+            "[minor] Ties broken across a system break are not merged",
+            "[minor] Pickup-bar acceptance is too permissive on single-staff scores"
+          ]
+        },
+        {
+          "round": 3,
+          "score": 8.4,
+          "pass": false,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/parsing-round3.md",
+          "topIssues": [
+            "[major] Single-staff anacrusis: tightened pickup rule leaves a 2.5-3.5 beat hole after an eighth-note pickup, at both ends of the piece",
+            "[major] Showcase step 4 stacks pitch labels from different systems onto one note (39 of 149 groups on the fixture)",
+            "[minor] A beamed tuplet inside a legitimately short bar (anacrusis or final bar) is dropped",
+            "[minor] Broken-tie continuation window (6 sp from staff.x1) does not clear a clef + key signature",
+            "[minor] Beam-tuplet candidates in one measure are applied all-or-nothing; no-time-signature numbers are applied unchecked",
+            "[minor] Showcase does not re-render on a devicePixelRatio-only change; small step-7 polish"
+          ]
+        },
+        {
+          "round": 4,
+          "score": 8.7,
+          "pass": true,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/parsing-round4.md",
+          "topIssues": [
+            "[minor] Widened volta-continuation window swallows a bracketed tuplet (or any thin line) that starts the next line after an open last ending",
+            "[minor] Single-staff mid-piece short bars that are a whole number of beats are truncated, and the warning does not say so",
+            "[minor] Step-4 pitch labels that flip below their head land inside the staff over lines and stems",
+            "[minor] Synthetic-page polish: volta-2 line crosses the tuplet box, tied-continuation head has no marker, red barline colour ambiguous",
+            "[minor] Ottava (8va) lines are neither applied nor warned about, and can be absorbed as a volta continuation",
+            "[minor] Disclosed heuristic limits to keep on record (no fixture or probe impact)"
+          ]
+        }
+      ],
+      "openIssues": [
+        "minor: Widened volta-continuation window swallows a bracketed tuplet (or any thin line) that starts the next line after an open last ending",
+        "minor: Single-staff mid-piece short bars that are a whole number of beats are truncated, and the warning does not say so",
+        "minor: Step-4 pitch labels that flip below their head land inside the staff over lines and stems",
+        "minor: Synthetic-page polish: volta-2 line crosses the tuplet box, tied-continuation head has no marker, red barline colour ambiguous",
+        "minor: Ottava (8va) lines are neither applied nor warned about, and can be absorbed as a volta continuation",
+        "minor: Disclosed heuristic limits to keep on record (no fixture or probe impact)"
+      ]
+    },
+    "audio": {
+      "score": 8.8,
+      "pass": true,
+      "rounds": [
+        {
+          "round": 1,
+          "score": 8.3,
+          "pass": false,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/audio-round1.md",
+          "topIssues": [
+            "[major] Scheduler collapses under background-tab timer throttling",
+            "[major] Failed/slow resume() leaves engine 'playing' with a frozen clock; play() cannot recover it",
+            "[major] Seeking into a held note (or offline-rendering from inside one) drops that voice until its next onset",
+            "[minor] Mixer meters show red at -20 dB (gradient scales with the fill)",
+            "[minor] Tempo change leaves already-sounding notes at their old-tempo duration"
+          ]
+        },
+        {
+          "round": 2,
+          "score": 8.8,
+          "pass": true,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/audio-round2.md",
+          "topIssues": [
+            "[minor] Master compressor tuned as a wide-knee compressor, not a limiter; it flattens the piano and keeps the output quiet",
+            "[minor] load() hard-cuts audio at the engine API (bus disconnect cancels the 35 ms release)",
+            "[minor] Voice.cancel() leaves oscillators running silently until their original stop time",
+            "[minor] Same-pitch retriggers on the sustained timbre barely re-articulate",
+            "[minor] finish() forgets ringing voices at the end of the score"
+          ]
+        }
+      ],
+      "openIssues": [
+        "minor: Master compressor tuned as a wide-knee compressor, not a limiter; it flattens the piano and keeps the output quiet",
+        "minor: load() hard-cuts audio at the engine API (bus disconnect cancels the 35 ms release)",
+        "minor: Voice.cancel() leaves oscillators running silently until their original stop time",
+        "minor: Same-pitch retriggers on the sustained timbre barely re-articulate",
+        "minor: finish() forgets ringing voices at the end of the score",
+        "minor: Showcase cosmetic: playhead marker collides with the 'repeat' label",
+        "minor: play() resolves silently when the context cannot start"
+      ]
+    },
+    "app": {
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": [
+        "integrate 2 in progress; final gate pending"
+      ]
+    }
   },
   "iterations": [
-    { "id": 1, "startedAt": "2026-09-10T08:55:00+10:00", "status": "running", "note": "Initial build: wave 1 ui -> integrate -> wave 2 parsing+audio -> integrate -> final gate" }
+    {
+      "id": 1,
+      "startedAt": "2026-09-10T08:55:00+10:00",
+      "status": "running",
+      "note": "Initial build: wave 1 ui -> integrate -> wave 2 parsing+audio -> integrate -> final gate"
+    }
   ],
-  "notes": "Scores are the critic's own numbers; never edited by builders."
+  "notes": "Scores are the critic's own numbers; never edited by builders.",
+  "integration": {
+    "integrate1": {
+      "done": true,
+      "commit": "7c063cb",
+      "applied": [
+        "ui — canvas CSS ownership doc in ScoreDocument.renderPage"
+      ],
+      "verify": "expected fail on stub parser; ready/UI-contract/zero-console-error checks pass"
+    }
+  }
 }
