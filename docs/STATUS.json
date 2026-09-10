@@ -1,13 +1,12 @@
 {
-  "updatedAt": "2026-09-10T13:43:00+10:00",
+  "updatedAt": "2026-09-10T14:05:00+10:00",
   "passThreshold": 8.5,
   "maxRoundsPerModule": 4,
   "workflow": {
     "runId": "wf_3b9ebb7e-3c4",
-    "phase": "Integrate 2",
-    "activeAgents": [
-      "integrator 2"
-    ]
+    "phase": "complete",
+    "agents": 19,
+    "durationMinutes": 295
   },
   "modules": {
     "ui": {
@@ -172,11 +171,35 @@
       ]
     },
     "app": {
-      "score": null,
-      "pass": false,
-      "rounds": [],
+      "score": 8.8,
+      "pass": true,
+      "rounds": [
+        {
+          "round": 1,
+          "score": 8.8,
+          "pass": true,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/app-final.md",
+          "topIssues": [
+            "[minor] parsing: A missing tempo mark is filled in silently (100 bpm default, zero warnings)",
+            "[minor] parsing: Core promise proven on a single one-page LilyPond engraving",
+            "[minor] audio: Mix sits at -22 dBFS RMS at unity; compressor tuned wide-knee, 12 dB of headroom unused",
+            "[minor] ui: No repeat-pass indicator; Measure.volta populated but unread",
+            "[minor] ui: Tempo slider short and coarse; long mixer strip names truncate without tooltip",
+            "[minor] core/audio: Silence is unexplained when the AudioContext cannot start; no unload() after failed parse",
+            "[minor] ui: Carried-over round-2 minors not re-verified at the gate"
+          ]
+        }
+      ],
       "openIssues": [
-        "integrate 2 in progress; final gate pending"
+        "minor: parsing: A missing tempo mark is filled in silently (100 bpm default, zero warnings)",
+        "minor: parsing: Core promise proven on a single one-page LilyPond engraving",
+        "minor: audio: Mix sits at -22 dBFS RMS at unity; compressor tuned wide-knee, 12 dB of headroom unused",
+        "minor: ui: No repeat-pass indicator; Measure.volta populated but unread",
+        "minor: ui: Tempo slider short and coarse; long mixer strip names truncate without tooltip",
+        "minor: core/audio: Silence is unexplained when the AudioContext cannot start; no unload() after failed parse",
+        "minor: ui: Carried-over round-2 minors not re-verified at the gate"
       ]
     }
   },
@@ -184,11 +207,13 @@
     {
       "id": 1,
       "startedAt": "2026-09-10T08:55:00+10:00",
-      "status": "running",
-      "note": "Initial build: wave 1 ui -> integrate -> wave 2 parsing+audio -> integrate -> final gate"
+      "status": "complete",
+      "note": "Initial build: wave 1 ui -> integrate -> wave 2 parsing+audio -> integrate -> final gate",
+      "finishedAt": "2026-09-10T13:55:00+10:00",
+      "result": "all critics pass: ui 8.8 (r2), audio 8.8 (r2), parsing 8.7 (r4), app 8.8"
     }
   ],
-  "notes": "Scores are the critic's own numbers; never edited by builders.",
+  "notes": "Scores are the critics' own numbers; never edited by builders. Known limits: engraved (vector) PDFs only, scanned PDFs rejected with a message; correctness proven on one LilyPond fixture; tempo defaults to 100 bpm when no tempo mark is printed.",
   "integration": {
     "integrate1": {
       "done": true,
@@ -197,6 +222,46 @@
         "ui — canvas CSS ownership doc in ScoreDocument.renderPage"
       ],
       "verify": "expected fail on stub parser; ready/UI-contract/zero-console-error checks pass"
+    },
+    "integrate2": {
+      "done": true,
+      "commits": [
+        "0d4cfc5",
+        "3df55cb"
+      ],
+      "applied": [
+        "audio — Pin down `ScheduledNote.gain` and the `renderOffline` `trackIds` semantics",
+        "audio — Scheduled-log entries for notes joined mid-way (seek/resume inside a held note)",
+        "parsing — Document where a bar-start grace note is filed (`NoteEvent.measure`)",
+        "parsing — Optional `Measure.volta` for alternative endings"
+      ],
+      "verifyPass": true,
+      "comparison": {
+        "variant": "printed",
+        "onsetPitchF1": 1,
+        "pitchLcsRatio": 1,
+        "durationAccuracy": 1
+      }
     }
-  }
+  },
+  "orchestratorVerification": {
+    "ranAt": "2026-09-10T04:02:14.929Z",
+    "report": "tools/verify/out/orchestrator-final/report.json",
+    "checksPassed": 28,
+    "checksFailed": 0,
+    "comparison": {
+      "onsetPitchF1": 1,
+      "pitchLcsRatio": 1,
+      "durationAccuracy": 1,
+      "unmatchedScoreTracks": 0,
+      "refTrackCount": 2,
+      "scoreTrackCount": 2
+    },
+    "parseMs": 226,
+    "playingFps": 61,
+    "typecheck": "clean",
+    "unitTests": "264 passed / 26 files"
+  },
+  "allPass": true,
+  "weakestModule": "parsing"
 }
