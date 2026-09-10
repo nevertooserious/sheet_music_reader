@@ -46,7 +46,8 @@ async function boot(): Promise<void> {
   markReady(hooks);
 
   if (params.get('autoload') === 'demo') {
-    controller.loadDemo().catch((err) => console.error('autoload failed', err));
+    // A failed autoload is already in AppState.error and rendered by the UI; re-logging it would count as a console error.
+    void controller.loadDemo().catch(() => undefined);
   }
 }
 

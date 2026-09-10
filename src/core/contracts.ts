@@ -18,6 +18,7 @@ import type {
 
 export interface ParseOptions {
   fileName: string;
+  /** Fractions should be non-decreasing; `stage` is shown verbatim in the progress card. */
   onProgress?: (progress: ParseProgress) => void;
   /** Expand repeat barlines into the playback timeline. Default true. */
   unfoldRepeats?: boolean;
@@ -27,16 +28,24 @@ export interface ScoreDocument {
   score: ScoreModel;
   pages: PageInfo[];
   /**
-   * Draw one page onto a canvas at the given scale (1 = PDF points → CSS px).
-   * The implementation sizes the canvas itself.
+   * Draw one page onto a canvas at the given scale (1 = PDF points → device px;
+   * the UI passes CSS scale × devicePixelRatio). The implementation sets
+   * `canvas.width`/`canvas.height` (bitmap size) only and must not set inline
+   * CSS size; the UI owns the CSS box. Rejects if the page cannot be drawn.
    */
   renderPage(pageIndex: number, canvas: HTMLCanvasElement, scale: number): Promise<void>;
   /** Optional per-page debug overlay data (detected staves, glyphs) for showcases. */
   debug?: unknown;
+  /** Release pdf.js resources; the controller calls it when another document replaces this one. */
   dispose(): void;
 }
 
 export interface ScoreParser {
+  /**
+   * Rejects with an Error whose message is a complete, user-readable sentence
+   * (it is shown verbatim in the error card), e.g. for scanned/raster PDFs,
+   * non-PDF data, or a PDF in which no notes were found.
+   */
   parse(data: ArrayBuffer, options: ParseOptions): Promise<ScoreDocument>;
 }
 
@@ -46,7 +55,7 @@ export interface ScheduledNote {
   midi: number;
   /** AudioContext time the note starts. */
   time: number;
-  /** Timeline position the note corresponds to, in quarter notes. */
+  /** The scheduled NoteEvent's `startQn`, unchanged (the verifier matches trackId + midi + qn to two decimals). */
   qn: number;
   durationSeconds: number;
   gain: number;
@@ -62,13 +71,22 @@ export interface OfflineRenderOptions {
 }
 
 export interface AudioEngine {
+  /**
+   * Replace the current score: stops playback, rewinds to 0, adopts
+   * `score.tempoBpm`, and rebuilds `TransportState.tracks` with one entry per
+   * track (gain = track.defaultGain, muted/solo false, level 0).
+   */
   load(score: ScoreModel): void;
-  /** Resumes the AudioContext (must be called from a user gesture in browsers) and starts from the current position. */
+  /**
+   * Resumes the AudioContext (must be called from a user gesture in browsers)
+   * and starts from the current position; at the end of the score it restarts
+   * from 0. No-op without a loaded score. Reaching `durationQn` pauses there.
+   */
   play(): Promise<void>;
   pause(): void;
   /** Pause and rewind to 0. */
   stop(): void;
-  /** Move the playhead. Works while playing (re-schedules) or paused. */
+  /** Move the playhead (clamped to [0, durationQn]). Works while playing (re-schedules, no hanging notes) or paused. */
   seek(positionQn: number): void;
   /** Quarter notes per minute, clamped to [20, 300]. Takes effect immediately, even while playing. */
   setTempo(bpm: number): void;
@@ -76,13 +94,18 @@ export interface AudioEngine {
   setTrackGain(trackId: string, gain: number): void;
   setTrackMuted(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, solo: boolean): void;
+  /** Reflects every setter synchronously; `positionQn` follows the audio clock while playing. */
   getState(): TransportState;
   /** Listener fires on every state change and at least every animation frame while playing. */
   subscribe(listener: (state: TransportState) => void): () => void;
   /** Notes scheduled since load()/last clear, oldest first. */
   getScheduledLog(): ScheduledNote[];
   clearScheduledLog(): void;
-  /** Render a section to a buffer without real-time playback, for verification. */
+  /**
+   * Render a section to a buffer without real-time playback, for verification.
+   * Same synth code path as live playback; the buffer covers
+   * qnToSeconds(toQn - fromQn, tempoBpm) plus at most a short release tail (< 0.5 s).
+   */
   renderOffline(options: OfflineRenderOptions): Promise<AudioBuffer>;
   dispose(): void;
 }
@@ -92,6 +115,16 @@ export interface AppStore {
   subscribe(listener: (state: AppState) => void): () => void;
 }
 
+/**
+ * The only write surface the UI uses. Every load method moves the store
+ * through status 'loading' (the previous score stays in state and playback is
+ * paused), then 'parsing' with progress (previous score, pages and document are
+ * cleared, playback stopped), then 'ready' or 'error'. A failure before parsing
+ * starts therefore leaves the previous score on screen. The returned promise
+ * rejects with the same error that is written to `AppState.error`, so callers
+ * that only need the UI to show it may ignore the rejection; a load superseded
+ * by a newer one resolves silently without touching the store.
+ */
 export interface AppController {
   loadFile(file: File): Promise<void>;
   loadArrayBuffer(data: ArrayBuffer, fileName: string): Promise<void>;
@@ -109,6 +142,7 @@ export interface AppController {
   setTrackGain(trackId: string, gain: number): void;
   setTrackMuted(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, solo: boolean): void;
+  /** Forwards to the current ScoreDocument; rejects with "No document loaded" while none is ready. */
   renderPage(pageIndex: number, canvas: HTMLCanvasElement, scale: number): Promise<void>;
 }
 

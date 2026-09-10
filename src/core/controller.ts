@@ -1,9 +1,10 @@
 import type { AppController, AudioEngine, ScoreDocument, ScoreParser } from './contracts';
 import type { WritableStore } from './store';
-import type { PageInfo } from './types';
 
 export const DEMO_URL = '/fixtures/bach-minuet-g.pdf';
 export const DEMO_FILE_NAME = 'Bach - Menuet in G (BWV Anh. 114).pdf';
+
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export function createController(
   store: WritableStore,
@@ -11,10 +12,17 @@ export function createController(
   engine: AudioEngine,
 ): AppController {
   let doc: ScoreDocument | undefined;
+  let loadSeq = 0;
 
   engine.subscribe((transport) => store.setState({ transport }));
 
-  async function loadArrayBuffer(data: ArrayBuffer, fileName: string): Promise<void> {
+  function beginLoad(fileName: string): number {
+    engine.pause();
+    store.setState({ status: 'loading', fileName, error: undefined, progress: undefined });
+    return ++loadSeq;
+  }
+
+  async function parseInto(seq: number, data: ArrayBuffer, fileName: string): Promise<void> {
     engine.stop();
     doc?.dispose();
     doc = undefined;
@@ -26,44 +34,60 @@ export function createController(
       pages: [],
       progress: { fraction: 0, stage: 'Opening PDF' },
     });
+    const next = await parser.parse(data, {
+      fileName,
+      onProgress: (progress) => {
+        if (seq === loadSeq) store.setState({ progress });
+      },
+    });
+    if (seq !== loadSeq) {
+      next.dispose();
+      return;
+    }
     try {
-      const next = await parser.parse(data, {
-        fileName,
-        onProgress: (progress) => store.setState({ progress }),
-      });
-      doc = next;
       engine.load(next.score);
-      const pages: PageInfo[] = next.pages;
-      store.setState({
-        status: 'ready',
-        score: next.score,
-        pages,
-        progress: undefined,
-        transport: engine.getState(),
-      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      store.setState({ status: 'error', error: message, progress: undefined });
+      next.dispose();
+      throw err;
+    }
+    doc = next;
+    store.setState({
+      status: 'ready',
+      score: next.score,
+      pages: next.pages,
+      progress: undefined,
+      transport: engine.getState(),
+    });
+  }
+
+  async function runLoad(seq: number, fileName: string, read: () => Promise<ArrayBuffer>): Promise<void> {
+    try {
+      const data = await read();
+      if (seq !== loadSeq) return;
+      await parseInto(seq, data, fileName);
+    } catch (err) {
+      if (seq !== loadSeq) return;
+      store.setState({ status: 'error', error: errorMessage(err), progress: undefined });
       throw err;
     }
   }
 
   return {
-    async loadFile(file) {
-      store.setState({ status: 'loading', fileName: file.name, error: undefined });
-      const data = await file.arrayBuffer();
-      await loadArrayBuffer(data, file.name);
+    loadFile(file) {
+      const seq = beginLoad(file.name);
+      return runLoad(seq, file.name, () => file.arrayBuffer());
     },
-    loadArrayBuffer,
-    async loadDemo() {
-      store.setState({ status: 'loading', fileName: DEMO_FILE_NAME, error: undefined });
-      const res = await fetch(DEMO_URL);
-      if (!res.ok) {
-        const message = `Demo fetch failed: ${res.status}`;
-        store.setState({ status: 'error', error: message });
-        throw new Error(message);
-      }
-      await loadArrayBuffer(await res.arrayBuffer(), DEMO_FILE_NAME);
+    loadArrayBuffer(data, fileName) {
+      const seq = beginLoad(fileName);
+      return runLoad(seq, fileName, async () => data);
+    },
+    loadDemo() {
+      const seq = beginLoad(DEMO_FILE_NAME);
+      return runLoad(seq, DEMO_FILE_NAME, async () => {
+        const res = await fetch(DEMO_URL);
+        if (!res.ok) throw new Error(`Demo fetch failed: ${res.status}`);
+        return res.arrayBuffer();
+      });
     },
     play: () => engine.play(),
     pause: () => engine.pause(),

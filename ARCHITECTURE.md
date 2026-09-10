@@ -65,15 +65,28 @@ import each other. `core/main.ts` is the only place the three meet.
 
 - `ScoreParser.parse(ArrayBuffer, { fileName, onProgress, unfoldRepeats }) → ScoreDocument`
   where `ScoreDocument { score, pages, renderPage(pageIndex, canvas, scale), dispose }`.
+  `renderPage` draws at `scale` = PDF points → device pixels (the UI passes CSS
+  scale × devicePixelRatio) and sets only the canvas bitmap size; the UI owns the
+  canvas CSS box. `parse` rejects with a user-readable sentence (shown verbatim in
+  the error card) for raster PDFs, non-PDF data, or scores with no notes.
 - `AudioEngine`: `load, play, pause, stop, seek, setTempo, setMasterGain,
   setTrackGain, setTrackMuted, setTrackSolo, getState, subscribe,
   getScheduledLog, clearScheduledLog, renderOffline, dispose`.
-  `play()` resumes the AudioContext. Tempo changes apply immediately while
-  playing. `getScheduledLog()` records every note actually scheduled so the
-  verifier can prove that what plays is what was parsed. `renderOffline`
-  renders a range to an `AudioBuffer` for sound-level checks.
+  `load()` stops, rewinds to 0, adopts `score.tempoBpm` and builds one
+  `TrackMixState` per track at `defaultGain`. `play()` resumes the AudioContext.
+  Tempo changes apply immediately while playing. `getState()` reflects every
+  setter synchronously. `getScheduledLog()` records every note actually
+  scheduled (`qn` = the note's `startQn`) so the verifier can prove that what
+  plays is what was parsed. `renderOffline` renders a range to an `AudioBuffer`
+  for sound-level checks; its length is the range at the given tempo plus a
+  short release tail.
 - `AppStore` (read) + `AppController` (write) are the **only** things the UI
-  touches. The controller wraps the parser and engine.
+  touches. The controller wraps the parser and engine. Loads go
+  `loading` (previous score kept, playback paused) → `parsing` (previous score,
+  pages and document cleared, playback stopped) → `ready` | `error`; a failure at
+  any stage ends in `status: 'error'` with the message the UI displays, and the
+  load promise rejects with that same error. Overlapping loads: the newest wins,
+  superseded results are disposed without touching the store.
 - `Showcase { name, steps[], runStep(i), getDiagnostics() }`: every module
   ships `src/<module>/showcase.ts` exporting `createShowcase(root)`; it is
   reachable at `/?showcase=<module>` and stages a representative scene of just
@@ -83,8 +96,9 @@ import each other. `core/main.ts` is the only place the three meet.
 ## Runtime wiring (src/core/main.ts)
 
 `/` boots the app: store → parser → engine → controller → `mountApp(root, { store, controller })`.
-`/?autoload=demo` also imports the bundled demo. `/?showcase=<module>` boots
-only that module's showcase. In every mode `window.__smr` (`TestHooks`) exposes
+`/?autoload=demo` also imports the bundled demo (a failure is surfaced only via
+`AppState.error`, never as a console error). `/?showcase=<module>` boots only
+that module's showcase. In every mode `window.__smr` (`TestHooks`) exposes
 `ready`, `store`, `controller`, `engine`, `parser`, `showcase`, and `errors`
 (console errors captured in-page). `#app[data-status="ready"]` mirrors `ready`.
 
