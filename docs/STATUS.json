@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-10T15:20:00+10:00",
+  "updatedAt": "2026-09-10T16:50:00+10:00",
   "passThreshold": 8.5,
   "maxRoundsPerModule": 4,
   "workflow": {
@@ -268,14 +268,70 @@
     {
       "date": "2026-09-10",
       "module": "parsing",
-      "title": "Sonata-layout legacy fonts: Opus, Opus Special, Opus Special Extra, Inkpen2, Helsinki, Reprise, Norfolk, Pori, Lelandia, Maestro, Petrucci, Engraver, Jazz, Sonata",
-      "evidence": "src/parsing/sonata.test.ts (unit) + src/parsing/sonata.external.test.ts against Sibelius 8 Reference Guide pages (skipped when the PDF is absent); page 336 examples parse note-for-note incl. dotted quarters and a tie across a barline",
+      "title": "Sonata-layout legacy fonts (Opus, Opus Special, Inkpen2, Maestro, ...) + single-line percussion staves, metronome tempo marks, octave/non-standard clefs",
+      "evidence": "src/parsing/sonata.test.ts; sonata.external.test.ts pins page 336 note sequences and page 324 clef octaves (all written C); appleTree.external.test.ts pins 2/2, tempo 176, 4/3/3 staves, 138 x 4 qn measures",
       "openIssues": [
-        "No public-domain Sibelius-exported score with reference MIDI in the repo (IMSLP/CPDL downloads are behind interactive disclaimers)",
-        "TrueType/CID-encoded Sibelius exports exercised only through unit tests, not a real file",
-        "Slash noteheads (Opus Special 0x56/0x3F/0x55) are ignored by design; hollow special noteheads are read as half notes even when stemless (whole)"
+        "No public-domain Sibelius score with reference MIDI in the repo (Apple Tree is a commercial edition, kept in fixtures/external, gitignored)",
+        "Choral scores whose voices split across systems still map staves to tracks by position within kind, so a solo staff inserted above the soprano shifts the voices for that system",
+        "Slash noteheads ignored by design; hollow special noteheads read as half even when stemless",
+        "Apple Tree: 73 rhythm warnings remain (two-voice bars on one staff read as aligned)"
       ],
-      "criticReport": "docs/critic-reports/parsing-opus-fonts.md (pending)"
+      "criticReport": "docs/critic-reports/parsing-opus-fonts-round2.md (pending)",
+      "commits": [
+        "73537a4",
+        "620292c"
+      ],
+      "criticRounds": [
+        {
+          "round": 1,
+          "score": 7.5,
+          "pass": false,
+          "consoleErrors": 0,
+          "report": "docs/critic-reports/parsing-opus-fonts.md",
+          "topIssues": [
+            "[major] Sibelius octave clefs lose their octave (Opus Special 8/15 marks unmapped)",
+            "[major] Character spacing folded into glyph advance misorders Tc-spaced rests",
+            "[major] SONATA_FONT regex over-matches text fonts (Engravers MT, Reprise Title, ...)",
+            "[major] External Sibelius test pinned no pitches"
+          ],
+          "resolution": "all four majors and minors 5-9 addressed in 620292c; round 2 pending"
+        }
+      ]
+    },
+    {
+      "date": "2026-09-10",
+      "module": "ui",
+      "title": "Score zoom control (fit width / fit page / 50-300 %, +/-/0 keys, remembered) and a labelled Auto-scroll toggle (remembered)",
+      "evidence": "src/ui/zoom.test.ts (10 tests); verify:showcase ui 13/13 steps, 0 console errors (steps 8-9 show 200 % with sideways follow and 50 % with auto-scroll off); npm run verify 28/28 checks; ad-hoc Chrome run on the real demo: 17/17 checks incl. persistence across reload",
+      "openIssues": [
+        "Zoom anchors on the viewport centre; when playback is paused the playing bar is not pulled back into view after a zoom (auto-scroll catches up on the next bar change)"
+      ],
+      "commits": []
+    },
+    {
+      "date": "2026-09-10",
+      "module": "audio",
+      "title": "Sampled piano: Salamander Grand Piano recordings (CC BY 3.0) for 'piano' and 'other' (percussion) tracks, synth kept as fallback and for named instruments",
+      "evidence": "src/audio/piano.test.ts (12) + 3 engine tests; npm run verify all checks pass (offline RMS 0.0845 vs synth 0.0798, 0 console errors, 0 failed requests); verify:showcase audio 11/11; tuning check in Chrome: E2-F#6 within 13 cents of target; 30/30 samples decode in about 400 ms on localhost; Apple Tree opening (percussion-only bars) now schedules sample voices only (30 sources, 0 oscillators in the first 4 s)",
+      "openIssues": [
+        "Percussion lines are rendered as piano notes at their staff-position pitch (F4-E5 on Apple Tree); a dedicated percussive sound would be the musical upgrade",
+        "One dynamic layer: velocity is level plus a lowpass, not a different recording",
+        "Recordings run 4-25 s; a note held longer than its recording simply ends (no loop points)",
+        "public/samples/piano adds 2.0 MB of mp3 to the repo if committed"
+      ],
+      "commits": []
+    },
+    {
+      "date": "2026-09-10",
+      "module": "ui",
+      "title": "Continuous zoom with Ctrl/⌘ + mouse wheel, trackpad pinch (Chrome/Firefox ctrl+wheel, Safari gesture events) and two-finger touch pinch, anchored on the pointer or pinch midpoint; free zoom values listed in the select and restored exactly on reload",
+      "evidence": "src/ui/zoom.test.ts (14 tests: wheel factor reproduces Chrome's -100·ln(scale) pinch encoding, a mouse notch is capped to 1.2x, free values survive parse/format); npm run typecheck clean; verify:showcase ui 15/15 steps, 0 console errors, 0 warnings (step 10: three ctrl+wheel notches take 50 % to 86 % around bar 6; step 11: synthetic two-finger pinch lands on exactly 150 % with the viewport centre held, scrollTop 277); npm run verify 28/28 checks",
+      "openIssues": [
+        "Touch pinch and Safari gesture paths are exercised with synthetic events in headless Chrome only; not yet tried on a physical touch screen or in desktop Safari",
+        "A pinch that begins after a one-finger scroll is already under way cannot cancel that scroll (touchmove is no longer cancelable), so the page scrolls and zooms together until the fingers lift",
+        "Wheel/pinch zoom deliberately does not pull the playing bar back into view while auto-scroll is on; the next bar change does"
+      ],
+      "commits": []
     }
   ]
 }

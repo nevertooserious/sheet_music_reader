@@ -112,7 +112,19 @@
 .button-small {
   height: 28px;
   padding: 0 10px;
+  gap: 6px;
   font-size: 12.5px;
+}
+
+.button.is-on {
+  color: var(--accent);
+  border-color: rgba(76, 194, 255, 0.5);
+  background: var(--accent-soft);
+}
+
+.button.is-on:hover:not(:disabled) {
+  background: rgba(76, 194, 255, 0.22);
+  border-color: rgba(76, 194, 255, 0.65);
 }
 
 .button-icon {
@@ -477,6 +489,49 @@
   height: 14px;
 }
 
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+.toolbar-select {
+  height: 28px;
+  padding: 0 24px 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2398a2b3'%3E%3Cpath d='M4.2 6.2a.65.65 0 0 1 .92 0L8 9.08l2.88-2.88a.65.65 0 1 1 .92.92l-3.34 3.34a.65.65 0 0 1-.92 0L4.2 7.12a.65.65 0 0 1 0-.92z'/%3E%3C/svg%3E")
+    no-repeat right 6px center / 13px 13px;
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.toolbar-select:hover:not(:disabled) {
+  background-color: var(--panel-raised);
+  border-color: #3d4550;
+}
+
+.toolbar-select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toolbar-toggle {
+  white-space: nowrap;
+}
+
 /* ---- Stage: empty / progress / error ---- */
 
 .score-stage {
@@ -653,6 +708,8 @@
   min-height: 0;
   overflow: auto;
   padding: 28px;
+  /* Pinch is handled by the score view; one-finger panning stays native. */
+  touch-action: pan-x pan-y;
 }
 
 .score-scroll:focus-visible {
@@ -665,6 +722,9 @@
   flex-direction: column;
   align-items: center;
   gap: 24px;
+  /* Wider than the viewport when zoomed in: centring inside an overflowing block would clip the left edge. */
+  width: max-content;
+  min-width: 100%;
 }
 
 .page {
@@ -1557,6 +1617,14 @@
 }
 
 @media (max-width: 700px) {
+  .toolbar-toggle .button-label {
+    display: none;
+  }
+
+  .toolbar-toggle {
+    padding: 0 8px;
+  }
+
   .header-brand-text {
     display: none;
   }

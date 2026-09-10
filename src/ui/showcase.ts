@@ -300,6 +300,54 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     await nextFrame();
     await nextFrame();
   };
+  const chooseZoom = (value: string): void => {
+    const select = q<HTMLSelectElement>('[data-control="zoom"]');
+    if (!select) return;
+    select.value = value;
+    fire(select, 'change');
+  };
+  /** Ctrl+wheel notches at a client point, the way Chrome reports both a mouse wheel and a trackpad pinch. */
+  const wheelZoom = (target: HTMLElement, clientX: number, clientY: number, notches: number): void => {
+    for (let i = 0; i < Math.abs(notches); i++) {
+      target.dispatchEvent(
+        new WheelEvent('wheel', { clientX, clientY, deltaY: notches > 0 ? -100 : 100, deltaMode: 0, ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+    }
+  };
+  /** Two synthetic fingers spreading around the viewport centre; WebKit gesture events where touch events are unavailable. */
+  const pinchZoom = (target: HTMLElement, ratio: number): void => {
+    const r = target.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    if (typeof TouchEvent === 'function' && typeof Touch === 'function') {
+      const fingers = (half: number): Touch[] => [
+        new Touch({ identifier: 1, target, clientX: cx - half, clientY: cy }),
+        new Touch({ identifier: 2, target, clientX: cx + half, clientY: cy }),
+      ];
+      const touch = (type: string, touches: Touch[]): void => {
+        target.dispatchEvent(new TouchEvent(type, { touches, targetTouches: touches, changedTouches: touches, bubbles: true, cancelable: true }));
+      };
+      touch('touchstart', fingers(60));
+      touch('touchmove', fingers(60 * Math.sqrt(ratio)));
+      touch('touchmove', fingers(60 * ratio));
+      touch('touchend', []);
+      return;
+    }
+    const gesture = (type: string, scale: number): Event =>
+      Object.assign(new Event(type, { bubbles: true, cancelable: true }), { scale, clientX: cx, clientY: cy });
+    target.dispatchEvent(gesture('gesturestart', 1));
+    target.dispatchEvent(gesture('gesturechange', Math.sqrt(ratio)));
+    target.dispatchEvent(gesture('gesturechange', ratio));
+    target.dispatchEvent(gesture('gestureend', ratio));
+  };
+  const setFollow = (on: boolean): void => {
+    const toggle = q<HTMLButtonElement>('[data-action="toggle-follow"]');
+    if (toggle && (toggle.getAttribute('aria-pressed') === 'true') !== on) toggle.click();
+  };
+  const rerendered = (): boolean => {
+    const render = app.scoreView.getRenderStats();
+    return render.renderedPages > 0 && render.freshPages === render.renderedPages;
+  };
 
   const reset = async (): Promise<void> => {
     transport.stop();
@@ -326,6 +374,11 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       errorBannerVisible: !(q<HTMLElement>('[data-role="error-banner"]')?.hidden ?? true),
       errorCardVisible: !(q<HTMLElement>('[data-role="error-state"]')?.hidden ?? true),
       positionText: q('[data-role="position"]')?.textContent ?? '',
+      zoom: app.scoreView.getZoom(),
+      scale: +render.scale.toFixed(3),
+      following: app.scoreView.isFollowing(),
+      scrollLeft: Math.round(app.scoreView.scroll.scrollLeft),
+      scrollTop: Math.round(app.scoreView.scroll.scrollTop),
     };
   };
   const stepSnapshots: Record<string, Record<string, unknown>> = {};
@@ -388,10 +441,53 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       },
     },
     {
+      label: 'Zoomed in to 200%: the view follows the playhead sideways',
+      run: async () => {
+        controller.seekToMeasure(5);
+        if (!store.getState().transport.playing) await controller.play();
+        chooseZoom('2');
+        await waitFor(rerendered);
+        await settled();
+      },
+    },
+    {
+      label: 'Zoomed out to 50%, auto-scroll off',
+      run: async () => {
+        chooseZoom('0.5');
+        setFollow(false);
+        await waitFor(rerendered);
+        await settled();
+      },
+    },
+    {
+      label: 'Ctrl+wheel, three notches over bar 6: zoomed in around the pointer',
+      run: async () => {
+        const scroll = app.scoreView.scroll;
+        const view = scroll.getBoundingClientRect();
+        const bar = q<HTMLElement>('[data-measure="5"]')?.getBoundingClientRect();
+        const x = Math.min(view.right - 20, Math.max(view.left + 20, bar ? bar.left + bar.width / 2 : view.left + view.width / 2));
+        const y = Math.min(view.bottom - 20, Math.max(view.top + 20, bar ? bar.top + bar.height / 2 : view.top + view.height / 2));
+        wheelZoom(scroll, x, y, 3);
+        await waitFor(rerendered);
+        await settled();
+      },
+    },
+    {
+      label: 'Pinch gesture: two fingers spread to 150%',
+      run: async () => {
+        pinchZoom(app.scoreView.scroll, 1.5 / app.scoreView.getScale());
+        await waitFor(rerendered);
+        await settled();
+      },
+    },
+    {
       label: 'Parse warnings expanded',
       run: async () => {
+        chooseZoom('fit-width');
+        setFollow(true);
         controller.pause();
         q<HTMLButtonElement>('[data-action="toggle-warnings"]')?.click();
+        await waitFor(rerendered);
         await nextFrame();
       },
     },
@@ -436,6 +532,10 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     '[data-action="mute"]',
     '[data-action="solo"]',
     '[data-role="score-view"]',
+    '[data-control="zoom"]',
+    '[data-action="zoom-in"]',
+    '[data-action="zoom-out"]',
+    '[data-action="toggle-follow"]',
     'input[type="file"]',
   ];
 
@@ -481,6 +581,8 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
           domNodes: root.querySelectorAll('*').length,
         },
         render: { ...render, bitmapMB: +(render.bitmapBytes / 1048576).toFixed(1) },
+        zoom: app.scoreView.getZoom(),
+        following: app.scoreView.isFollowing(),
         mixer: app.mixer.getOverflow(),
         playheadVisible: !!playhead && !playhead.hidden,
         errorBannerVisible: !(q<HTMLElement>('[data-role="error-banner"]')?.hidden ?? true),

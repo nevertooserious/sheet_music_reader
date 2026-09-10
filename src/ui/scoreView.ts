@@ -1,11 +1,10 @@
 import type { AppController } from '../core/contracts';
 import type { AppState, LayoutBox, NoteEvent, PageInfo, ScoreModel, TimelineSegment, TransportState } from '../core/types';
-import { el, iconButton, setHidden, setPressed, setText } from './dom';
+import { el, iconButton, setDisabled, setHidden, setPressed, setText } from './dom';
 import {
   type OnsetAnchor,
   type TrackNotes,
   activeNotes,
-  fitScale,
   indexTracks,
   measureUnionBox,
   onsetAnchors,
@@ -14,6 +13,19 @@ import {
 } from './format';
 import { icons } from './icons';
 import { bitmapBytes, effectiveDpr, pageRange, renderOrder } from './pageMath';
+import { readPref, writePref } from './prefs';
+import {
+  DEFAULT_ZOOM,
+  ZOOM_PRESETS,
+  type ZoomMode,
+  formatScalePercent,
+  formatZoom,
+  normalizeZoom,
+  parseZoom,
+  resolveScale,
+  stepZoom,
+  wheelZoomFactor,
+} from './zoom';
 
 const PAGE_PADDING = 28;
 const MEASURE_PAD = 6;
@@ -47,6 +59,8 @@ export interface RenderStats {
   renderCalls: number;
   releases: number;
   renderedPages: number;
+  /** Rendered pages whose bitmap matches the current scale and device pixel ratio. */
+  freshPages: number;
   bitmapBytes: number;
   visiblePages: number[];
   scale: number;
@@ -63,7 +77,13 @@ export interface ScoreView {
   /** Scroll the current measure into view on the next update (after an explicit seek). */
   reveal(): void;
   getScale(): number;
+  getZoom(): ZoomMode;
+  /** Numeric modes are remembered as the default for the next session, as are the fit modes. */
+  setZoom(mode: ZoomMode): void;
+  zoomIn(): void;
+  zoomOut(): void;
   isFollowing(): boolean;
+  setFollowing(on: boolean): void;
   getRenderStats(): RenderStats;
   dispose(): void;
 }
@@ -76,25 +96,54 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
 
   const pageLabel = el('span', { class: 'toolbar-text', text: '' });
   const positionLabel = el('span', { class: 'toolbar-text toolbar-text-strong', text: '' });
-  let following = true;
-  const followButton = iconButton({
-    icon: icons.follow,
-    label: 'Follow playhead',
-    action: 'toggle-follow',
-    class: 'is-on',
-    attrs: { 'aria-pressed': 'true' },
-    onClick: () => {
-      following = !following;
-      setPressed(followButton, following);
-      followButton.classList.toggle('is-on', following);
-      if (following) scrollToCurrent(true);
+
+  let zoom: ZoomMode = parseZoom(readPref('zoom')) ?? DEFAULT_ZOOM;
+  let following = readPref('follow') !== 'off';
+
+  const fitWidthOption = el('option', { value: 'fit-width', text: 'Fit width' });
+  const fitPageOption = el('option', { value: 'fit-page', text: 'Fit page' });
+  const presetOptions = ZOOM_PRESETS.map((p) => el('option', { value: String(p), text: formatScalePercent(p) }));
+  /** Listed only while a wheel or pinch zoom sits between two presets. */
+  const customOption = el('option', { value: '', text: '' });
+  const zoomSelect = el(
+    'select',
+    {
+      class: 'toolbar-select',
+      'data-control': 'zoom',
+      'aria-label': 'Zoom',
+      title: 'Zoom (Ctrl/⌘ + wheel or pinch to zoom freely; 0 returns to fit width)',
     },
+    [fitWidthOption, fitPageOption, ...presetOptions],
+  );
+  zoomSelect.addEventListener('change', () => {
+    const mode = parseZoom(zoomSelect.value);
+    if (mode !== undefined) setZoom(mode);
   });
+  const zoomOutButton = iconButton({ icon: icons.zoomOut, label: 'Zoom out (−)', action: 'zoom-out', onClick: () => zoomBy(-1) });
+  const zoomInButton = iconButton({ icon: icons.zoomIn, label: 'Zoom in (+)', action: 'zoom-in', onClick: () => zoomBy(1) });
+
+  const followButton = el(
+    'button',
+    {
+      type: 'button',
+      class: 'button button-small toolbar-toggle',
+      'data-action': 'toggle-follow',
+      'aria-label': 'Auto-scroll',
+      'aria-pressed': 'false',
+      title: 'Auto-scroll: keep the playing bar in view',
+    },
+    [el('span', { class: 'button-icon', html: icons.follow }), el('span', { class: 'button-label', text: 'Auto-scroll' })],
+  );
+  followButton.addEventListener('click', () => setFollowing(!following));
+
   const toolbar = el('div', { class: 'score-toolbar' }, [
     el('span', { class: 'panel-title', text: 'Score' }),
     pageLabel,
     el('span', { class: 'toolbar-spacer' }),
     positionLabel,
+    el('span', { class: 'toolbar-divider' }),
+    el('div', { class: 'toolbar-group', role: 'group', 'aria-label': 'Zoom' }, [zoomOutButton, zoomSelect, zoomInButton]),
+    el('span', { class: 'toolbar-divider' }),
     followButton,
   ]);
 
@@ -127,17 +176,16 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
   const notePool: HTMLElement[] = [];
   const activeBuffer: NoteEvent[] = [];
   const activeAll: NoteEvent[] = [];
+  syncFollowButton();
+  syncZoomControls();
 
   const resizeObserver = new ResizeObserver(() => {
     if (!score) return;
     const next = computeScale();
     if (Math.abs(next - scale) < 0.002) return;
     applyScale(next);
-    if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
-    resizeTimer = window.setTimeout(() => {
-      resizeTimer = undefined;
-      scheduleRender();
-    }, RESIZE_SETTLE_MS);
+    if (following) scrollToCurrent(false);
+    settleRender();
   });
   resizeObserver.observe(scroll);
 
@@ -170,9 +218,13 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
   const dprTimer = window.setInterval(checkDpr, DPR_POLL_MS);
 
   function computeScale(): number {
-    const widest = pages.reduce((w, p) => Math.max(w, p.info.width), 0);
-    const available = scroll.clientWidth - PAGE_PADDING * 2;
-    return fitScale(available, widest);
+    let widest = 0;
+    let tallest = 0;
+    for (const p of pages) {
+      widest = Math.max(widest, p.info.width);
+      tallest = Math.max(tallest, p.info.height);
+    }
+    return resolveScale(zoom, scroll.clientWidth - PAGE_PADDING * 2, scroll.clientHeight - PAGE_PADDING * 2, widest, tallest);
   }
 
   function applyScale(next: number): void {
@@ -183,7 +235,214 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       page.root.style.height = `${page.info.height * scale}px`;
     }
     lastNotesKey = '';
-    updatePlayhead(true);
+    updatePlayhead(true, false);
+    syncZoomControls();
+  }
+
+  /** Rapid zoom or resize steps stretch the existing bitmaps; the real re-render waits until the size settles. */
+  function settleRender(): void {
+    if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = undefined;
+      scheduleRender();
+    }, RESIZE_SETTLE_MS);
+  }
+
+  function setZoom(mode: ZoomMode): void {
+    zoom = mode;
+    writePref('zoom', formatZoom(mode));
+    if (score) rescale(computeScale());
+    syncZoomControls();
+  }
+
+  function zoomBy(direction: 1 | -1): void {
+    const next = stepZoom(scale, direction);
+    if (next !== undefined) setZoom(next);
+  }
+
+  function rescale(next: number): void {
+    if (Math.abs(next - scale) < 0.002) return;
+    const anchor = viewAnchor();
+    applyScale(next);
+    if (anchor) restoreAnchor(anchor);
+    if (following && latestTransport.playing) scrollToCurrent(false);
+    settleRender();
+  }
+
+  /** Continuous zoom from a wheel or pinch: the score under `anchor` stays under `to`, and the mode becomes that exact scale. */
+  function gestureZoom(target: number, anchor: ViewAnchor | undefined, to: ViewPoint): void {
+    const next = normalizeZoom(target);
+    if (Math.abs(next - scale) >= 0.002) {
+      zoom = next;
+      writePref('zoom', formatZoom(next));
+      applyScale(next);
+      settleRender();
+    }
+    if (anchor) restoreAnchor(anchor, to);
+  }
+
+  /** Client coordinates. */
+  interface ViewPoint {
+    x: number;
+    y: number;
+  }
+
+  interface ViewAnchor {
+    page: PageView;
+    fx: number;
+    fy: number;
+  }
+
+  function viewportCentre(): ViewPoint {
+    const view = scroll.getBoundingClientRect();
+    return { x: view.left + scroll.clientWidth / 2, y: view.top + scroll.clientHeight / 2 };
+  }
+
+  /** The page under a viewport point and where on it the point falls, so a zoom can keep that spot in place. */
+  function viewAnchor(at: ViewPoint = viewportCentre()): ViewAnchor | undefined {
+    const candidates = pages.some((p) => p.visible) ? pages.filter((p) => p.visible) : pages;
+    if (candidates.length === 0) return undefined;
+    let best: PageView | undefined;
+    let bestDistance = Infinity;
+    for (const page of candidates) {
+      const r = page.root.getBoundingClientRect();
+      const distance = at.y < r.top ? r.top - at.y : at.y > r.bottom ? at.y - r.bottom : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = page;
+        if (distance === 0) break;
+      }
+    }
+    if (!best) return undefined;
+    const r = best.root.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return undefined;
+    return { page: best, fx: (at.x - r.left) / r.width, fy: (at.y - r.top) / r.height };
+  }
+
+  /** Scrolls so the anchored spot lands under `to`: a gesture's current midpoint, or the viewport centre. */
+  function restoreAnchor(anchor: ViewAnchor, to: ViewPoint = viewportCentre()): void {
+    const view = scroll.getBoundingClientRect();
+    const r = anchor.page.root.getBoundingClientRect();
+    const x = r.left - view.left + scroll.scrollLeft + anchor.fx * r.width;
+    const y = r.top - view.top + scroll.scrollTop + anchor.fy * r.height;
+    scroll.scrollTo({ left: Math.max(0, x - (to.x - view.left)), top: Math.max(0, y - (to.y - view.top)), behavior: 'auto' });
+  }
+
+  // Chrome and Firefox deliver a trackpad pinch as ctrl+wheel, so one listener covers the mouse wheel and desktop pinches.
+  scroll.addEventListener(
+    'wheel',
+    (event) => {
+      if (!score || !(event.ctrlKey || event.metaKey)) return;
+      const factor = wheelZoomFactor(event.deltaY, event.deltaMode);
+      if (factor === 1) return;
+      event.preventDefault();
+      const at = { x: event.clientX, y: event.clientY };
+      gestureZoom(scale * factor, viewAnchor(at), at);
+    },
+    { passive: false },
+  );
+
+  interface Pinch {
+    distance: number;
+    scale: number;
+    anchor: ViewAnchor | undefined;
+  }
+  let pinch: Pinch | undefined;
+  let gesture: { scale: number; anchor: ViewAnchor | undefined } | undefined;
+
+  function touchSpan(touches: TouchList): { distance: number; mid: ViewPoint } {
+    const a = touches[0];
+    const b = touches[1];
+    return {
+      distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+      mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+    };
+  }
+
+  scroll.addEventListener(
+    'touchstart',
+    (event) => {
+      pinch = undefined;
+      if (!score || event.touches.length !== 2) return;
+      const { distance, mid } = touchSpan(event.touches);
+      if (distance <= 0) return;
+      gesture = undefined;
+      pinch = { distance, scale, anchor: viewAnchor(mid) };
+    },
+    { passive: true },
+  );
+  // Non-passive so a two-finger move can opt out of native scrolling; one finger still scrolls natively (touch-action in ui.css).
+  scroll.addEventListener(
+    'touchmove',
+    (event) => {
+      if (!pinch || event.touches.length !== 2) return;
+      if (event.cancelable) event.preventDefault();
+      const { distance, mid } = touchSpan(event.touches);
+      if (distance <= 0) return;
+      gestureZoom((pinch.scale * distance) / pinch.distance, pinch.anchor, mid);
+    },
+    { passive: false },
+  );
+  const endPinch = (event: TouchEvent): void => {
+    if (event.touches.length < 2) pinch = undefined;
+  };
+  scroll.addEventListener('touchend', endPinch);
+  scroll.addEventListener('touchcancel', endPinch);
+
+  // Desktop Safari reports trackpad pinches only through its proprietary gesture events. iOS fires them alongside
+  // touch events, so an active touch pinch takes precedence and the gesture is merely kept from zooming the page.
+  interface GestureLikeEvent extends Event {
+    scale: number;
+    clientX: number;
+    clientY: number;
+  }
+  scroll.addEventListener('gesturestart', (event) => {
+    if (!score) return;
+    event.preventDefault();
+    if (pinch) return;
+    const e = event as GestureLikeEvent;
+    gesture = { scale, anchor: viewAnchor({ x: e.clientX, y: e.clientY }) };
+  });
+  scroll.addEventListener('gesturechange', (event) => {
+    if (!score) return;
+    event.preventDefault();
+    const e = event as GestureLikeEvent;
+    if (!gesture || pinch || !(e.scale > 0)) return;
+    gestureZoom(gesture.scale * e.scale, gesture.anchor, { x: e.clientX, y: e.clientY });
+  });
+  scroll.addEventListener('gestureend', () => {
+    gesture = undefined;
+  });
+
+  function setFollowing(on: boolean): void {
+    following = on;
+    writePref('follow', on ? 'on' : 'off');
+    syncFollowButton();
+    if (on) scrollToCurrent(true);
+  }
+
+  function syncFollowButton(): void {
+    setPressed(followButton, following);
+    followButton.classList.toggle('is-on', following);
+  }
+
+  function syncZoomControls(): void {
+    const value = formatZoom(zoom);
+    if (typeof zoom === 'number' && !ZOOM_PRESETS.includes(zoom)) {
+      const current = zoom;
+      customOption.value = value;
+      setText(customOption, formatScalePercent(current));
+      const after = presetOptions.find((o) => Number(o.value) > current) ?? null;
+      if (!customOption.isConnected || customOption.nextElementSibling !== after) zoomSelect.insertBefore(customOption, after);
+    } else {
+      customOption.remove();
+    }
+    if (zoomSelect.value !== value) zoomSelect.value = value;
+    const percent = score ? ` · ${formatScalePercent(scale)}` : '';
+    setText(fitWidthOption, zoom === 'fit-width' ? `Fit width${percent}` : 'Fit width');
+    setText(fitPageOption, zoom === 'fit-page' ? `Fit page${percent}` : 'Fit page');
+    setDisabled(zoomOutButton, stepZoom(scale, -1) === undefined);
+    setDisabled(zoomInButton, stepZoom(scale, 1) === undefined);
   }
 
   function pct(value: number, total: number): string {
@@ -413,7 +672,7 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
     currentAnchors = currentPage && currentUnion ? onsetAnchors(trackNotes, currentSeg, currentPage.info.index) : [];
   }
 
-  function updatePlayhead(force: boolean): void {
+  function updatePlayhead(force: boolean, follow = true): void {
     if (!score) return;
     const positionQn = latestTransport.positionQn;
     const jumped = positionQn < lastPositionQn - 1e-6 || positionQn - lastPositionQn > SEEK_JUMP_QN;
@@ -429,7 +688,7 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       const x = (playheadX(currentAnchors, positionQn - currentSeg.startQn, currentSeg.durationQn, currentUnion) - currentUnion.x) * scale;
       currentPage.playhead.style.transform = `translate3d(${x.toFixed(2)}px, 0, 0)`;
     }
-    if (segmentChanged || jumped || pendingReveal) {
+    if (follow && (segmentChanged || jumped || pendingReveal)) {
       const smooth = !force && (latestTransport.playing || jumped || pendingReveal);
       pendingReveal = false;
       scrollToCurrent(smooth);
@@ -476,17 +735,39 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
 
   function scrollToCurrent(smooth: boolean): void {
     if (!following || !currentPage || !currentUnion || root.hidden) return;
-    const pageTop = currentPage.root.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+    const view = scroll.getBoundingClientRect();
+    const pageRect = currentPage.root.getBoundingClientRect();
+    const pageTop = pageRect.top - view.top + scroll.scrollTop;
+    const pageLeft = pageRect.left - view.left + scroll.scrollLeft;
     const top = pageTop + (currentUnion.y - MEASURE_PAD) * scale;
     const bottom = pageTop + (currentUnion.y + currentUnion.height + MEASURE_PAD) * scale;
+    const left = pageLeft + currentUnion.x * scale;
+    const right = pageLeft + (currentUnion.x + currentUnion.width) * scale;
     const viewTop = scroll.scrollTop;
-    const viewBottom = viewTop + scroll.clientHeight;
+    const viewLeft = scroll.scrollLeft;
     const margin = 32;
-    if (top >= viewTop + margin && bottom <= viewBottom - margin) return;
-    const target = Math.max(0, top - scroll.clientHeight * 0.3);
+
+    let targetTop = viewTop;
+    if (top < viewTop + margin || bottom > viewTop + scroll.clientHeight - margin) {
+      const pageHeight = currentPage.info.height * scale;
+      // A page that fits the viewport is shown whole rather than scrolled bar by bar.
+      targetTop =
+        pageHeight <= scroll.clientHeight - margin
+          ? pageTop - (scroll.clientHeight - pageHeight) / 2
+          : top - scroll.clientHeight * 0.3;
+      targetTop = Math.max(0, targetTop);
+    }
+
+    let targetLeft = viewLeft;
+    const overflowsX = scroll.scrollWidth > scroll.clientWidth + 1;
+    if (overflowsX && (left < viewLeft + margin || right > viewLeft + scroll.clientWidth - margin)) {
+      targetLeft = Math.max(0, Math.min(left - scroll.clientWidth * 0.3, scroll.scrollWidth - scroll.clientWidth));
+    }
+
+    if (targetTop === viewTop && targetLeft === viewLeft) return;
     // Far jumps scroll instantly: animating through many pages would render each one on the way.
-    const far = Math.abs(target - viewTop) > scroll.clientHeight * 2;
-    scroll.scrollTo({ top: target, behavior: smooth && !far ? 'smooth' : 'auto' });
+    const far = Math.abs(targetTop - viewTop) > scroll.clientHeight * 2;
+    scroll.scrollTo({ top: targetTop, left: targetLeft, behavior: smooth && !far ? 'smooth' : 'auto' });
   }
 
   function resetScore(next: ScoreModel | undefined, infos: PageInfo[]): void {
@@ -505,6 +786,7 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       buildPages(score, infos);
       applyScale(computeScale());
       scroll.scrollTop = 0;
+      scroll.scrollLeft = 0;
       scheduleRender();
     } else {
       trackNotes = [];
@@ -538,11 +820,17 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       pendingReveal = true;
     },
     getScale: () => scale,
+    getZoom: () => zoom,
+    setZoom,
+    zoomIn: () => zoomBy(1),
+    zoomOut: () => zoomBy(-1),
     isFollowing: () => following,
+    setFollowing,
     getRenderStats: () => ({
       renderCalls,
       releases,
       renderedPages: pages.filter((p) => p.rendered).length,
+      freshPages: pages.filter(isFresh).length,
       bitmapBytes: bitmapBytes(pages.map((p) => p.canvas)),
       visiblePages: pages.filter((p) => p.visible).map((p) => p.info.index),
       scale,

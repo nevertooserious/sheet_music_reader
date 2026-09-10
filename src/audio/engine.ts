@@ -4,6 +4,7 @@ import { qnToSeconds } from '../core/types';
 import { type Ticker, type TickerFactory, createTicker } from './clock';
 import { FAST_RELEASE_SECONDS, RETRIGGER_LEAD_SECONDS } from './envelope';
 import { anySolo, clampGain, effectiveTrackGain, panPositions, smoothLevel } from './mix';
+import { type PianoSampleSet, playsPianoSamples, startSampledVoice } from './piano';
 import {
   type ClockAnchor,
   SCHEDULER,
@@ -18,11 +19,13 @@ import {
   sortByStart,
   timeForQn,
 } from './scheduler';
-import { type TrackBus, type Voice, createMasterBus, createTrackBus, startVoice } from './synth';
+import { type TrackBus, type Voice, type VoiceRequest, createMasterBus, createTrackBus, startVoice } from './synth';
 
 /** Release tail appended to offline renders; the contract allows < 0.5 s. */
 export const OFFLINE_TAIL_SECONDS = 0.35;
 export const RESUME_TIMEOUT_MS = 1500;
+/** play() and renderOffline() wait at most this long for the piano samples; after that the synth plays them. */
+export const SAMPLES_WAIT_MS = 4000;
 const GAIN_SMOOTHING_SECONDS = 0.012;
 const INITIAL_TEMPO = 100;
 const INITIAL_MASTER_GAIN = 0.9;
@@ -36,6 +39,8 @@ export interface EngineOptions {
   createTicker?: TickerFactory;
   /** Hidden-tab detection; defaults to document.visibilityState. */
   isHidden?: () => boolean;
+  /** Sampled piano for tracks without a named instrument (see playsPianoSamples); undefined or a rejection leaves every track on the synth. */
+  samples?: Promise<PianoSampleSet | undefined>;
 }
 
 export interface ClockInfo {
@@ -54,6 +59,7 @@ export interface AudioEngineInternals extends AudioEngine {
   getClockInfo(): ClockInfo;
   /** Stereo position per track id, -1..1. */
   getPans(): Record<string, number>;
+  getPianoSamples(): { loaded: number; settled: boolean };
 }
 
 interface TrackRuntime {
@@ -141,6 +147,29 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
   const makeOffline = options.createOfflineContext ?? defaultCreateOfflineContext;
   const makeTicker = options.createTicker ?? createTicker;
   const isHidden = options.isHidden ?? defaultIsHidden;
+
+  let sampleSet: PianoSampleSet | undefined;
+  let samplesSettled = options.samples === undefined;
+  const samplesReady = options.samples
+    ?.then(
+      (set) => {
+        sampleSet = set;
+      },
+      () => undefined,
+    )
+    .finally(() => {
+      samplesSettled = true;
+    });
+
+  async function awaitSamples(): Promise<void> {
+    if (!samplesReady || samplesSettled) return;
+    await Promise.race([samplesReady, new Promise<void>((resolve) => setTimeout(resolve, SAMPLES_WAIT_MS))]);
+  }
+
+  function spawnVoice(context: BaseAudioContext, destination: AudioNode, req: VoiceRequest): Voice {
+    if (sampleSet && playsPianoSamples(req.instrument)) return startSampledVoice(context, destination, req, sampleSet);
+    return startVoice(context, destination, req);
+  }
 
   let ctx: AudioContext | undefined;
   let master: GainNode | undefined;
@@ -261,7 +290,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     if (previous && previous.voice.startTime <= timing.start && previous.voice.stopTime > timing.start) {
       previous.voice.choke(timing.start - RETRIGGER_LEAD_SECONDS);
     }
-    const voice = startVoice(context, bus.input, {
+    const voice = spawnVoice(context, bus.input, {
       midi: note.midi,
       velocity: note.velocity,
       startTime: timing.start,
@@ -453,6 +482,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     pendingPlay = (async () => {
       const context = ensureContext();
       const running = context.state === 'running' || (await resumeContext(context, RESUME_TIMEOUT_MS));
+      await awaitSamples();
       if (token !== playToken || disposed || !score) return;
       if (!running) {
         if (playing) halt(context.currentTime);
@@ -550,6 +580,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     const toQn = options.toQn;
     if (!Number.isFinite(toQn) || toQn <= fromQn) throw new Error('renderOffline: toQn must be greater than fromQn.');
     const sampleRate = Math.min(96000, Math.max(8000, options.sampleRate ?? 44100));
+    await awaitSamples();
     const seconds = qnToSeconds(toQn - fromQn, tempo) + OFFLINE_TAIL_SECONDS;
     const offline = makeOffline(2, Math.max(128, Math.ceil(seconds * sampleRate)), sampleRate);
     const bus = createMasterBus(offline, masterGain);
@@ -568,7 +599,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
       const start = (note: NoteEvent, startTime: number, durationSeconds: number, elapsedSeconds: number): void => {
         const previous = lastByMidi.get(note.midi);
         if (previous && previous.startTime <= startTime && previous.stopTime > startTime) previous.choke(startTime - RETRIGGER_LEAD_SECONDS);
-        const voice = startVoice(offline, trackBus.input, {
+        const voice = spawnVoice(offline, trackBus.input, {
           midi: note.midi,
           velocity: note.velocity,
           startTime,
@@ -655,5 +686,6 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     getVoiceCount: () => voices.size,
     getClockInfo: () => ({ ticker: ticker?.kind ?? 'none', horizonSeconds, hidden: isHidden() }),
     getPans: () => Object.fromEntries(tracks.map((rt) => [rt.track.id, rt.pan])),
+    getPianoSamples: () => ({ loaded: sampleSet?.buffers.size ?? 0, settled: samplesSettled }),
   };
 }

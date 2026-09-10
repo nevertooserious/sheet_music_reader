@@ -20,6 +20,8 @@ npm run verify:showcase -- <module>  # showcase tutorial screenshots -> tools/ve
   `OPENSSL_CONF=/dev/null`).
 - The sandbox blocks listening on ports and launching Chrome. Run `npm run dev`,
   `npm run verify`, and `npm run verify:showcase` with the sandbox disabled.
+- vitest exits 255 with no output inside the sandbox (even `vitest --version`);
+  run `npm test` with the sandbox disabled too. `tsc` is fine sandboxed.
 - Network is blocked in the sandbox; installs must run with the sandbox disabled.
   Do not add dependencies unless you truly need them; say so in your report.
 - The dev server is already running on 5173. Do not start a second one and never kill it.

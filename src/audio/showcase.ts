@@ -5,6 +5,7 @@ import type { NoteEvent, ScoreModel, TrackMixState, TransportState } from '../co
 import { midiToName, qnToSeconds } from '../core/types';
 import { type AudioEngineInternals, createAudioEngine } from './engine';
 import { anySolo, dbToMeter, effectiveTrackGain, gainToDb } from './mix';
+import { loadBundledPiano } from './piano';
 import { SCHEDULER } from './scheduler';
 
 const TRACK_COLORS = ['#4cc2ff', '#ffb454', '#57d38c', '#ff6b6b', '#c084fc', '#f472b6'];
@@ -516,7 +517,7 @@ interface StripRefs {
 
 export async function createShowcase(root: HTMLElement): Promise<Showcase> {
   const score = createDemoScore();
-  const engine: AudioEngineInternals = createAudioEngine();
+  const engine: AudioEngineInternals = createAudioEngine({ samples: loadBundledPiano() });
   engine.load(score);
   if (window.__smr) window.__smr.engine = engine;
 
@@ -753,7 +754,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     const clock = engine.getClockInfo();
     setText(
       badgeScheduler,
-      `clock: ${clock.ticker === 'none' ? 'idle' : clock.ticker}${clock.hidden ? ' (hidden tab)' : ''} · lookahead ${Math.round(clock.horizonSeconds * 1000)} ms · tick ${SCHEDULER.tickMs} ms`,
+      `clock: ${clock.ticker === 'none' ? 'idle' : clock.ticker}${clock.hidden ? ' (hidden tab)' : ''} · lookahead ${Math.round(clock.horizonSeconds * 1000)} ms · tick ${SCHEDULER.tickMs} ms · piano: ${describePiano()}`,
     );
     const soloActive = anySolo(state.tracks);
     for (const track of state.tracks) {
@@ -767,6 +768,12 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     drawScope(scopeCanvas, analyser, scopeBuffer);
     drawSpectrum(spectrumCanvas, analyser, sampleRate, spectrumBuffer);
   }
+
+  const describePiano = (): string => {
+    const piano = engine.getPianoSamples();
+    if (!piano.settled) return 'loading samples';
+    return piano.loaded > 0 ? `${piano.loaded} samples` : 'synth (samples unavailable)';
+  };
 
   const redraw = (): void => render(engine.getState());
   engine.subscribe(render);
@@ -792,6 +799,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       voices: engine.getVoiceCount(),
       tracks: state.tracks.map((t) => ({ id: t.trackId, gain: t.gain, muted: t.muted, solo: t.solo, level: round(t.level) })),
       positionText: positionText.textContent,
+      pianoSamples: engine.getPianoSamples(),
     };
   };
 
@@ -960,9 +968,13 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
           distinct: Math.abs(corr) < 0.9,
         };
         drawWaveforms(timbreCanvas, timbreLayers);
+        const pianoDescription =
+          engine.getPianoSamples().loaded > 0
+            ? `piano (Salamander Grand Piano recordings, nearest minor third pitch-shifted, velocity lowpass)`
+            : `piano (triangle + decaying partials, 6 ms attack)`;
         setText(
           timbreText,
-          `Same notes, two timbres: piano (triangle + decaying partials, 6 ms attack) vs strings (detuned sawtooth pair, 60 ms attack). ` +
+          `Same notes, two timbres: ${pianoDescription} vs strings (detuned sawtooth pair, 60 ms attack). ` +
             `Spectral centroid ${Math.round(pianoCentroid)} Hz vs ${Math.round(stringsCentroid)} Hz at 250 ms; waveform correlation ${corr.toFixed(3)}.`,
         );
         await settled();
@@ -1014,6 +1026,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
         heldNoteChase: heldChaseResult,
         pans: engine.getPans(),
         clock: engine.getClockInfo(),
+        pianoSamples: engine.getPianoSamples(),
         contractMethods: CONTRACT_METHODS.map((name) => ({ name, implemented: typeof engine[name] === 'function' })),
         scheduler: {
           tickMs: SCHEDULER.tickMs,

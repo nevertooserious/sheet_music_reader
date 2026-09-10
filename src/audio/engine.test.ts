@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDemoScore } from '../core/demoScore';
 import type { NoteEvent, ScoreModel, Track } from '../core/types';
 import { qnToSeconds } from '../core/types';
-import { RESUME_TIMEOUT_MS, createAudioEngine, resumeContext } from './engine';
-import { FAST_RELEASE_SECONDS, RETRIGGER_LEAD_SECONDS } from './envelope';
-import { FakeAudioContext, FakeOfflineAudioContext } from './fakeAudioContext';
+import { type EngineOptions, RESUME_TIMEOUT_MS, createAudioEngine, resumeContext } from './engine';
+import { FAST_RELEASE_SECONDS, RETRIGGER_LEAD_SECONDS, timbreFor, velocityToPeak } from './envelope';
+import { FakeAudioBuffer, FakeAudioContext, FakeOfflineAudioContext } from './fakeAudioContext';
 import { PAN_SPREAD } from './mix';
+import { PIANO_SAMPLE_MIDIS, type PianoSampleSet } from './piano';
 import { SCHEDULER } from './scheduler';
 
 interface Harness {
@@ -15,11 +16,12 @@ interface Harness {
   setHidden(hidden: boolean): void;
 }
 
-function harness(): Harness {
+function harness(extra: Pick<EngineOptions, 'samples'> = {}): Harness {
   const fake = new FakeAudioContext();
   const offlines: FakeOfflineAudioContext[] = [];
   let hidden = false;
   const engine = createAudioEngine({
+    ...extra,
     createContext: () => fake as unknown as AudioContext,
     createOfflineContext: (channels, length, sampleRate) => {
       const offline = new FakeOfflineAudioContext(channels, length, sampleRate);
@@ -516,5 +518,51 @@ describe('load and dispose', () => {
     expect(engine.getState().playing).toBe(false);
     await run(fake, 200);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('sampled piano', () => {
+  const fakeSet = (): PianoSampleSet => ({
+    buffers: new Map(PIANO_SAMPLE_MIDIS.map((m) => [m, new FakeAudioBuffer(2, 44100 * 4, 44100) as unknown as AudioBuffer])),
+  });
+
+  it('plays piano and unnamed (percussion) tracks from the recordings and named instruments from the synth', async () => {
+    const set = fakeSet();
+    const { engine, fake } = harness({ samples: Promise.resolve(set) });
+    engine.load(
+      scoreWith([
+        { id: 'p', instrument: 'piano', notes: [[62, 0, 1]] },
+        { id: 'o', instrument: 'other', notes: [[71, 0, 1]] },
+        { id: 's', instrument: 'strings', notes: [[40, 0, 1]] },
+      ]),
+    );
+    await engine.play();
+    expect(fake.sources.length).toBe(2);
+    expect(fake.sources[0].buffer).toBe(set.buffers.get(63));
+    expect(fake.sources[0].playbackRate.value).toBeCloseTo(Math.pow(2, -1 / 12), 9);
+    expect(fake.sources[1].buffer).toBe(set.buffers.get(72));
+    expect(fake.oscillators.length).toBe(timbreFor('strings').partials.length);
+    expect(engine.getScheduledLog().find((n) => n.trackId === 'p')?.gain).toBeCloseTo(velocityToPeak(0.8), 9);
+    expect(engine.getPianoSamples()).toEqual({ loaded: 30, settled: true });
+  });
+
+  it('keeps every track on the synth when the samples fail to load, live and offline', async () => {
+    const { engine, fake, offlines } = harness({ samples: Promise.reject(new Error('offline')) });
+    engine.load(scoreWith([{ instrument: 'piano', notes: [[60, 0, 1]] }]));
+    await engine.play();
+    expect(fake.sources.length).toBe(0);
+    expect(fake.oscillators.length).toBeGreaterThan(0);
+    await engine.renderOffline({ fromQn: 0, toQn: 1, tempoBpm: 120 });
+    expect(offlines[0].sources.length).toBe(0);
+    expect(offlines[0].oscillators.length).toBeGreaterThan(0);
+    expect(engine.getPianoSamples()).toEqual({ loaded: 0, settled: true });
+  });
+
+  it('renders offline from the recordings once they have loaded', async () => {
+    const { engine, offlines } = harness({ samples: Promise.resolve(fakeSet()) });
+    engine.load(scoreWith([{ instrument: 'piano', notes: [[60, 0, 1], [67, 1, 1]] }]));
+    await engine.renderOffline({ fromQn: 0, toQn: 2, tempoBpm: 120 });
+    expect(offlines[0].sources.length).toBe(2);
+    expect(offlines[0].oscillators.length).toBe(0);
   });
 });

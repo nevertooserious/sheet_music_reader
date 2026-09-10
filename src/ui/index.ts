@@ -123,6 +123,23 @@ export function mountApp(root: HTMLElement, deps: UiDeps): MountedApp {
         controller.seek(nudgeByMeasure(score, state.transport.positionQn, event.key === 'ArrowRight' ? 1 : -1));
         scoreView.reveal();
         return;
+      case '+':
+      case '=':
+        if (!score) return;
+        event.preventDefault();
+        scoreView.zoomIn();
+        return;
+      case '-':
+      case '_':
+        if (!score) return;
+        event.preventDefault();
+        scoreView.zoomOut();
+        return;
+      case '0':
+        if (!score) return;
+        event.preventDefault();
+        scoreView.setZoom('fit-width');
+        return;
       default:
         return;
     }

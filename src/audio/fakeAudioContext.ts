@@ -124,6 +124,29 @@ export class FakeOscillatorNode extends FakeAudioNode {
   }
 }
 
+export class FakeAudioBufferSourceNode extends FakeAudioNode {
+  buffer: FakeAudioBuffer | null = null;
+  playbackRate = new FakeAudioParam(1);
+  loop = false;
+  startTime: number | undefined;
+  offset = 0;
+  stopTime: number | undefined;
+  stopCalls = 0;
+  ended = false;
+  onended: (() => void) | null = null;
+
+  start(when = 0, offset = 0): void {
+    if (this.startTime !== undefined) throw new Error('InvalidStateError: start() called twice');
+    this.startTime = when;
+    this.offset = offset;
+  }
+
+  stop(when = 0): void {
+    this.stopCalls++;
+    this.stopTime = when;
+  }
+}
+
 export class FakeBiquadFilterNode extends FakeAudioNode {
   type: BiquadFilterType = 'lowpass';
   frequency = new FakeAudioParam(350);
@@ -181,6 +204,7 @@ export class FakeBaseAudioContext {
   destination = new FakeAudioNode(this);
   gains: FakeGainNode[] = [];
   oscillators: FakeOscillatorNode[] = [];
+  sources: FakeAudioBufferSourceNode[] = [];
   filters: FakeBiquadFilterNode[] = [];
   analysers: FakeAnalyserNode[] = [];
   panners: FakeStereoPannerNode[] = [];
@@ -195,6 +219,12 @@ export class FakeBaseAudioContext {
   createOscillator(): FakeOscillatorNode {
     const node = new FakeOscillatorNode(this);
     this.oscillators.push(node);
+    return node;
+  }
+
+  createBufferSource(): FakeAudioBufferSourceNode {
+    const node = new FakeAudioBufferSourceNode(this);
+    this.sources.push(node);
     return node;
   }
 
@@ -222,13 +252,13 @@ export class FakeBaseAudioContext {
     return node;
   }
 
-  /** Moves the clock and ends oscillators whose stop time has passed. */
+  /** Moves the clock and ends oscillators and buffer sources whose stop time has passed. */
   advance(seconds: number): void {
     this.currentTime += seconds;
-    for (const osc of this.oscillators) {
-      if (!osc.ended && osc.stopTime !== undefined && osc.stopTime <= this.currentTime) {
-        osc.ended = true;
-        osc.onended?.();
+    for (const node of [...this.oscillators, ...this.sources]) {
+      if (!node.ended && node.stopTime !== undefined && node.stopTime <= this.currentTime) {
+        node.ended = true;
+        node.onended?.();
       }
     }
   }

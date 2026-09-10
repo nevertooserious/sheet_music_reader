@@ -168,7 +168,7 @@ export function createImportZone(deps: ImportZoneDeps): ImportZone {
     el('div', { class: 'stage-actions' }, [emptyOpen, emptyDemo]),
     el('p', {
       class: 'stage-footnote',
-      text: 'Works with vector-engraved PDFs exported from LilyPond, MuseScore, Finale or Sibelius. Scanned pages are not supported yet.',
+      text: 'Works with vector-engraved PDFs exported from LilyPond, MuseScore, Finale or Sibelius. Scanned pages are not supported yet. Piano sound: Salamander Grand Piano by Alexander Holm (CC BY 3.0).',
     }),
   ]);
 

@@ -153,7 +153,12 @@ MIDI is not unfolded (129 + 75 notes).
 - Import: drag-and-drop, file picker, and "Load demo" button.
 - Score view: rendered pages (via `controller.renderPage`) with a moving
   playhead / current-measure highlight driven by `transport.positionQn` and
-  `score.timeline`; clicking a measure seeks there (`seekToMeasure`).
+  `score.timeline`; clicking a measure seeks there (`seekToMeasure`). Toolbar
+  zoom (fit width, fit page, 50–300 %; `+`/`-`/`0` keys) plus continuous
+  zoom with Ctrl/⌘ + mouse wheel, trackpad pinch and two-finger touch pinch,
+  anchored on the pointer (25–400 %), and an auto-scroll toggle that keeps
+  the playing bar in view, both remembered in localStorage (`smr.ui.zoom`,
+  `smr.ui.follow`).
 - Transport: play/pause/stop, position (measure + mm:ss), seek slider over
   `durationQn`, tempo control (30–240 bpm with reset to the score's tempo).
 - Mixer: one strip per track with name, gain slider, mute, solo, level meter.
@@ -168,10 +173,14 @@ MIDI is not unfolded (129 + 75 notes).
 - Web Audio; per-track `GainNode` → master `GainNode` → destination; solo/mute
   logic in the engine; lookahead scheduler (≈25 ms tick, ≈120 ms horizon)
   that maps qn → context time and survives tempo changes and seeks without
-  hanging notes; polyphonic synth with a pleasant piano-like timbre and
-  velocity; no clicks (envelopes on every note); playhead reported at
-  animation-frame rate; `renderOffline` uses `OfflineAudioContext` with the
-  same synth code path.
+  hanging notes; 'piano' and 'other' tracks (everything the parser emits,
+  including percussion lines) play the bundled Salamander Grand Piano
+  recordings (`public/samples/piano`, Alexander Holm, CC BY 3.0; one sample
+  per minor third, pitch-shifted to the note, velocity as level plus a
+  lowpass) and fall back to the polyphonic synth when the samples cannot
+  load; named instruments (strings, organ, ...) use the synth timbres; no
+  clicks (envelopes on every note); playhead reported at animation-frame rate; `renderOffline`
+  uses `OfflineAudioContext` with the same voice code path.
 
 ## Parsing requirements (src/parsing)
 
