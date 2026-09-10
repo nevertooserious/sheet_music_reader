@@ -1,13 +1,47 @@
 {
-  "updatedAt": "2026-09-10T00:00:00Z",
+  "updatedAt": "2026-09-10T10:05:00+10:00",
   "passThreshold": 8.5,
   "maxRoundsPerModule": 4,
+  "workflow": { "runId": "wf_3b9ebb7e-3c4", "phase": "Wave 1: ui", "activeAgent": "build:ui r2" },
   "modules": {
-    "ui": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
-    "parsing": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
-    "audio": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built"] },
+    "ui": {
+      "score": 8.1,
+      "pass": false,
+      "rounds": [
+        {
+          "round": 1,
+          "score": 8.1,
+          "pass": false,
+          "consoleErrors": 0,
+          "contractViolations": 0,
+          "report": "docs/critic-reports/ui-round1.md",
+          "topIssues": [
+            "[major] Score view renders every page eagerly at full DPR with no virtualisation",
+            "[major] Mixer hides tracks beyond two: strips overflow a fixed 300 px panel with no visible scroll affordance",
+            "[major] Meter peak-hold marker is stuck at the top of every meter"
+          ]
+        }
+      ],
+      "openIssues": [
+        "Score view renders every page eagerly at full DPR with no virtualisation",
+        "Mixer strips overflow a fixed 300 px panel with no scroll affordance beyond two tracks",
+        "Meter peak-hold marker stuck at 0 dBFS",
+        "Loading a new file while a score is displayed splits the score column",
+        "Tempo field keeps out-of-range typed value after clamping",
+        "Showcase mock page draws bar-1 noteheads over clef/key/time signature",
+        "Below ~900 px width controls are clipped",
+        "Follow mode does not re-centre on seek within current measure",
+        "devicePixelRatio changes not observed",
+        "Playhead x linear in measure fraction (will drift on real engraving)",
+        "Accessibility and disposal hygiene"
+      ]
+    },
+    "parsing": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built (wave 2)"] },
+    "audio": { "score": null, "pass": false, "rounds": [], "openIssues": ["not built (wave 2)"] },
     "app": { "score": null, "pass": false, "rounds": [], "openIssues": ["not integrated"] }
   },
-  "iterations": [],
+  "iterations": [
+    { "id": 1, "startedAt": "2026-09-10T08:55:00+10:00", "status": "running", "note": "Initial build: wave 1 ui -> integrate -> wave 2 parsing+audio -> integrate -> final gate" }
+  ],
   "notes": "Scores are the critic's own numbers; never edited by builders."
 }
