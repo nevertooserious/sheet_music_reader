@@ -114,3 +114,8 @@ Workaround used meanwhile: none.
 ## parsing — showcase `--query` and rate-based playback check in tools/verify    (status: applied by the orchestrator, 2026-09-10)
 Why: `showcase.mjs --query "pdf=...&pages=..."` forwards parameters so critics can screenshot any engraved PDF; the run.mjs "transport is playing and advancing" check compared position with wall time across a screenshot and failed under machine load (4.25 vs 5.79 qn); it now measures the advance rate over a one-second window (±15 %).
 Workaround used meanwhile: none.
+
+## core — `DEMO_URL` built from `import.meta.env.BASE_URL`            (status: applied directly at the user's request, 2026-09-11)
+Why: GitHub Pages serves the app under `/sheet_music_reader/`; a root-relative `/fixtures/...` URL 404s there. Same change made in `src/parsing/showcase.ts` for its fixture paths.
+Change: `export const DEMO_URL = \`${import.meta.env.BASE_URL}fixtures/bach-minuet-g.pdf\`;` in src/core/controller.ts.
+Workaround used meanwhile: none.

@@ -7,8 +7,8 @@ import { parseReferenceMidi } from './midiReference';
 import type { PageExtraction, Staff } from './model';
 import { buildSyntheticPage, drawSyntheticPage } from './syntheticScene';
 
-const FIXTURE_PDF = '/fixtures/bach-minuet-g.pdf';
-const FIXTURE_MID = '/fixtures/bach-minuet-g.mid';
+const FIXTURE_PDF = `${import.meta.env.BASE_URL}fixtures/bach-minuet-g.pdf`;
+const FIXTURE_MID = `${import.meta.env.BASE_URL}fixtures/bach-minuet-g.mid`;
 
 /**
  * ?pdf=<url>&pages=313,324&page=1 stages the scene on another engraved PDF

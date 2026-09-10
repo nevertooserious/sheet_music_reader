@@ -148,6 +148,15 @@ Project (public domain), engraved with LilyPond 2.19 (Emmentaler fonts). Two
 staves, 3/4, G major, 32 printed measures with two volta repeats. The reference
 MIDI is not unfolded (129 + 75 notes).
 
+## Deployment
+
+`.github/workflows/pages.yml` builds `main` on every push and publishes `dist/`
+to GitHub Pages (https://nebffa.github.io/sheet_music_reader/). The site is a
+project page under `/sheet_music_reader/`, so the workflow sets `BASE_PATH` and
+`vite.config.ts` passes it to Vite's `base`; anything that fetches a bundled
+file must build its URL from `import.meta.env.BASE_URL` rather than a leading
+`/`. Local dev and the verifier keep serving from the root.
+
 ## UI requirements (src/ui)
 
 - Import: drag-and-drop, file picker, and "Load demo" button.

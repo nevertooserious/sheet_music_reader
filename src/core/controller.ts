@@ -1,7 +1,7 @@
 import type { AppController, AudioEngine, ScoreDocument, ScoreParser } from './contracts';
 import type { WritableStore } from './store';
 
-export const DEMO_URL = '/fixtures/bach-minuet-g.pdf';
+export const DEMO_URL = `${import.meta.env.BASE_URL}fixtures/bach-minuet-g.pdf`;
 export const DEMO_FILE_NAME = 'Bach - Menuet in G (BWV Anh. 114).pdf';
 
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));

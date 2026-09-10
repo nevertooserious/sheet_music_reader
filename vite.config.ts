@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // GitHub Pages serves the app under /<repo>/; the deploy workflow sets BASE_PATH, local dev stays at the root.
+  base: process.env.BASE_PATH || '/',
   server: {
     port: 5173,
     strictPort: true,
