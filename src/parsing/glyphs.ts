@@ -145,6 +145,32 @@ const SMUFL: Record<number, MusicGlyph> = {
   0xe4ea: { kind: 'rest', restQn: 0.03125 },
 };
 
+/**
+ * SMuFL reserves U+F400-U+F8FF for glyphs each font defines itself, so a code
+ * in it only means something once the font is known. Dorico's Bravura exports
+ * report every notehead here rather than at its canonical U+E0Ax code, which
+ * otherwise leaves a score with no noteheads at all. Identified from the
+ * advances Bravura gives these three glyphs (1.32 staff spaces for the black
+ * and half heads, 1.84 for the wider whole head).
+ */
+const OPTIONAL_BY_FONT: Array<{ font: RegExp; codes: Record<number, MusicGlyph> }> = [
+  {
+    font: /^bravura/i,
+    codes: {
+      0xf4bc: { kind: 'notehead', head: 'whole' },
+      0xf4bd: { kind: 'notehead', head: 'half' },
+      0xf4be: { kind: 'notehead', head: 'black' },
+    },
+  },
+];
+
+/** A font-specific meaning for a code in SMuFL's optional-glyph area, if we know one. */
+export function classifyOptional(fontName: string, codePoint: number): MusicGlyph | undefined {
+  if (codePoint < 0xf400 || codePoint > 0xf8ff) return undefined;
+  for (const entry of OPTIONAL_BY_FONT) if (entry.font.test(fontName)) return entry.codes[codePoint];
+  return undefined;
+}
+
 /** SMuFL code points (Bravura, Leland, MScore, Petaluma, ...). */
 export function classifySmufl(codePoint: number): MusicGlyph | undefined {
   if (codePoint >= 0xe080 && codePoint <= 0xe089) return { kind: 'digit', digit: codePoint - 0xe080 };
@@ -165,6 +191,8 @@ export function classifyGlyph(glyph: GlyphPlacement): MusicGlyph | undefined {
   }
   if (glyph.family === 'smufl' || glyph.family === 'legacy-music') {
     const cp = glyph.unicode && glyph.unicode.length ? glyph.unicode.codePointAt(0)! : -1;
+    const optional = cp >= 0 ? classifyOptional(glyph.fontName, cp) : undefined;
+    if (optional) return optional;
     const fromCode = cp >= 0 ? classifySmufl(cp) : undefined;
     if (fromCode) return fromCode;
     if (glyph.name) {

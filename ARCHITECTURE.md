@@ -19,14 +19,20 @@ pdf.js instead of doing pixel-level optical music recognition:
    `defaultEncoding` from pdf.js with `fontExtraProperties: true`).
    Emmentaler (LilyPond) uses names such as `noteheads.s2`, `clefs.G`,
    `accidentals.sharp`, `rests.2`, `flags.u3`; SMuFL fonts (Bravura, Leland,
-   MScore) use Private-Use-Area code points; Sonata-layout legacy fonts
+   MScore) use Private-Use-Area code points, and where a PDF reports a glyph
+   from SMuFL's font-specific U+F400-U+F8FF area instead of its canonical code
+   a per-font table covers it (Dorico's Bravura exports put every notehead
+   there, so without it a Dorico score has no notes at all); Sonata-layout
+   legacy fonts
    (Sibelius' Opus, Opus Special, Inkpen2, Helsinki, Reprise and their
    Norfolk/Pori/Lelandia replacements, Finale's Maestro, Petrucci, Engraver,
    Jazz, Adobe Sonata) are keyed by their original 8-bit code, recovered from
    `uniF0XX` or MacRoman glyph names, PUA code points or the raw byte
    (`src/parsing/sonata.ts`). A font adapter maps each family to a common
    glyph vocabulary.
-3. Detect staves (five equally spaced horizontal lines), group them into
+3. Detect staves (five equally spaced horizontal lines, matched by the run of
+   the page they span rather than exact endpoints, since a bracket serif drawn
+   flush against the outer line of a group merges into it), group them into
    systems, assign glyphs to staves, read clefs / key / time signatures,
    split by barlines into measures, and derive pitch (vertical position +
    clef + key + accidentals) and duration (notehead type + stem + flags /
@@ -135,6 +141,10 @@ screenshot taken by the agent.
   `tools/verify/out/showcase-<module>/report.json`. `--query "pdf=<url>&pages=313,336&page=1"`
   stages the parsing showcase on another engraved PDF served by Vite (the
   MIDI comparison step then reports that no reference exists).
+- Bravura / Dorico is exercised by `src/parsing/noMachine.external.test.ts`
+  against a 10-page five-voice choir arrangement (not public domain, not
+  bundled; drop it at `fixtures/external/no-machine.pdf` or set
+  `SMR_NO_MACHINE_PDF`). Skipped when the file is absent.
 - Opus fonts are exercised by `src/parsing/sonata.external.test.ts` against the
   Sibelius 8 Reference Guide (Avid's copyright, not bundled; drop it at
   `tools/verify/out/opus/sib8-reference.pdf` or set `SMR_SIBELIUS_PDF`), whose

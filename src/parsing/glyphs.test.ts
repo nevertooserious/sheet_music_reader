@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyEmmentaler, classifyGlyph, classifySmufl } from './glyphs';
+import { classifyEmmentaler, classifyGlyph, classifyOptional, classifySmufl } from './glyphs';
 import type { GlyphPlacement } from './model';
 
 describe('glyph vocabulary adapters', () => {
@@ -55,6 +55,15 @@ describe('glyph vocabulary adapters', () => {
     expect(classifySmufl(0x41)).toBeUndefined();
   });
 
+  it('reads Bravura noteheads from the optional-glyph area', () => {
+    expect(classifyOptional('Bravura', 0xf4be)).toEqual({ kind: 'notehead', head: 'black' });
+    expect(classifyOptional('Bravura', 0xf4bd)?.head).toBe('half');
+    expect(classifyOptional('Bravura', 0xf4bc)?.head).toBe('whole');
+    expect(classifyOptional('Bravura', 0xe0a4)).toBeUndefined();
+    expect(classifyOptional('Bravura', 0xf400)).toBeUndefined();
+    expect(classifyOptional('Leland', 0xf4be)).toBeUndefined();
+  });
+
   it('classifies placements by font family', () => {
     const base: GlyphPlacement = { page: 0, fontId: 'f', fontName: 'Emmentaler-20', family: 'emmentaler', code: 1, x: 0, y: 0, advance: 5, size: 20 };
     expect(classifyGlyph({ ...base, name: 'noteheads.s2' })?.kind).toBe('notehead');
@@ -62,5 +71,8 @@ describe('glyph vocabulary adapters', () => {
     expect(classifyGlyph({ ...base, fontName: 'Bravura', family: 'smufl', unicode: '' })?.head).toBe('black');
     expect(classifyGlyph({ ...base, fontName: 'Bravura', family: 'smufl', unicode: 'x', name: 'noteheads.s1' })?.head).toBe('half');
     expect(classifyGlyph({ ...base, fontName: 'Times', family: 'text', unicode: 'A' })).toBeUndefined();
+    // Dorico's Bravura exports report noteheads from the optional-glyph area, where the generic table sees nothing musical.
+    expect(classifyGlyph({ ...base, fontName: 'Bravura', family: 'smufl', unicode: '\uf4be' })).toEqual({ kind: 'notehead', head: 'black' });
+    expect(classifyGlyph({ ...base, fontName: 'Leland', family: 'smufl', unicode: '\uf4be' })?.kind).toBe('other');
   });
 });

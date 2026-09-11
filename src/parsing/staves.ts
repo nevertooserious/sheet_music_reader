@@ -130,6 +130,18 @@ export function polylineSegments(paths: PathShape[], maxPoints = 6): { horizonta
   return { horizontal, vertical };
 }
 
+/**
+ * Same run of the page, within a tenth of the longer line. Endpoints are not
+ * compared exactly because a bracket serif or system-line tick drawn flush
+ * against a staff line merges into it (Dorico exports do this on the top and
+ * bottom line of a bracketed group), which shifts one line's edge by a few
+ * points while the other four stay put.
+ */
+function sameSpan(a: HLine, b: HLine): boolean {
+  const overlap = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1);
+  return overlap >= 0.9 * Math.max(a.x2 - a.x1, b.x2 - b.x1);
+}
+
 /** Five equidistant horizontal lines with the same horizontal extent form a staff. */
 export function detectStaves(paths: PathShape[], page: number): Staff[] {
   const lines = mergeCollinear(horizontalLines(paths)).filter((l) => l.x2 - l.x1 >= 40);
@@ -142,7 +154,7 @@ export function detectStaves(paths: PathShape[], page: number): Staff[] {
     for (let j = i + 1; j < lines.length && run.length < 5; j++) {
       if (used.has(j)) continue;
       const l = lines[j];
-      if (Math.abs(l.x1 - top.x1) <= 2.5 && Math.abs(l.x2 - top.x2) <= 2.5 && l.y > lines[run[run.length - 1]].y + 0.5) {
+      if (sameSpan(l, top) && l.y > lines[run[run.length - 1]].y + 0.5) {
         run.push(j);
       }
     }

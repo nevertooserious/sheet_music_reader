@@ -113,6 +113,15 @@ describe('collinear segments', () => {
     ]);
   });
 
+  it('detects a staff whose outer line carries a merged bracket serif', () => {
+    // Dorico draws the bracket's horizontal serif flush against the first and last line of the group,
+    // so those two lines come out of mergeCollinear a few points wider than the three between them.
+    const paths = [0, 1, 2, 3, 4].map((i) => hline(i === 0 || i === 4 ? 24 : 30, 500, 100 + i * SP));
+    const staves = detectStaves(paths, 0);
+    expect(staves).toHaveLength(1);
+    expect(staves[0].space).toBeCloseTo(SP, 5);
+  });
+
   it('detects one staff from lines drawn per measure', () => {
     const paths = [0, 1, 2, 3, 4].flatMap((i) => [hline(30, 200, 100 + i * SP), hline(200.8, 500, 100 + i * SP)]);
     const staves = detectStaves(paths, 0);
