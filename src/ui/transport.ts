@@ -50,7 +50,7 @@ export function createTransportBar(deps: TransportDeps): TransportBar {
     },
   });
 
-  const barBeat = el('div', { class: 'transport-bar-beat', 'data-role': 'position', text: 'bar – · beat –' });
+  const barBeat = el('div', { class: 'transport-bar-beat', 'data-role': 'position', text: 'bar –' });
   const elapsed = el('span', { class: 'transport-elapsed', text: '0:00' });
   const total = el('span', { class: 'transport-total', text: '0:00' });
   const clock = el('div', { class: 'transport-clock', 'aria-label': 'Elapsed and total time' }, [

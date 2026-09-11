@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createDemoScore } from '../core/demoScore';
+import type { TrackMixState } from '../core/types';
 import {
   activeNotes,
+  anySolo,
   clamp,
   describeKey,
   findSegmentIndex,
@@ -11,6 +13,7 @@ import {
   formatPosition,
   formatQnClock,
   indexTracks,
+  isTrackAudible,
   maxDuration,
   measureUnionBox,
   nudgeByMeasure,
@@ -75,15 +78,20 @@ describe('findSegmentIndex', () => {
 });
 
 describe('positionInfo / formatPosition', () => {
-  it('reports bar and beat for 3/4', () => {
-    expect(formatPosition(score, 0)).toBe('bar 1 · beat 1');
-    expect(formatPosition(score, 1)).toBe('bar 1 · beat 2');
-    expect(formatPosition(score, 2.5)).toBe('bar 1 · beat 3');
-    expect(formatPosition(score, 6)).toBe('bar 3 · beat 1');
+  it('reports the bar for 3/4', () => {
+    expect(formatPosition(score, 0)).toBe('bar 1');
+    expect(formatPosition(score, 2.5)).toBe('bar 1');
+    expect(formatPosition(score, 6)).toBe('bar 3');
+  });
+
+  it('still tracks the beat within the bar', () => {
+    expect(positionInfo(score, 0)?.beat).toBe(1);
+    expect(positionInfo(score, 1)?.beat).toBe(2);
+    expect(positionInfo(score, 2.5)?.beat).toBe(3);
   });
 
   it('reports the printed bar on the repeat pass', () => {
-    expect(formatPosition(score, 24 + 3 * 5 + 1)).toBe('bar 6 · beat 2');
+    expect(formatPosition(score, 24 + 3 * 5 + 1)).toBe('bar 6');
   });
 
   it('computes the fraction through the measure', () => {
@@ -92,7 +100,7 @@ describe('positionInfo / formatPosition', () => {
   });
 
   it('handles a missing score', () => {
-    expect(formatPosition(undefined, 4)).toBe('bar – · beat –');
+    expect(formatPosition(undefined, 4)).toBe('bar –');
   });
 });
 
@@ -145,6 +153,35 @@ describe('activeNotes', () => {
     const out: typeof rh = [];
     expect(activeNotes([], 3, 1, out)).toBe(out);
     expect(out).toHaveLength(0);
+  });
+});
+
+describe('anySolo / isTrackAudible', () => {
+  const mix = (patch: Partial<TrackMixState> = {}): TrackMixState => ({
+    trackId: 'track-1',
+    gain: 0.8,
+    muted: false,
+    solo: false,
+    level: 0,
+    ...patch,
+  });
+
+  it('detects an active solo', () => {
+    expect(anySolo([mix(), mix()])).toBe(false);
+    expect(anySolo([mix(), mix({ solo: true })])).toBe(true);
+  });
+
+  it('silences a muted track and everything a solo excludes', () => {
+    expect(isTrackAudible(mix(), false)).toBe(true);
+    expect(isTrackAudible(mix({ muted: true }), false)).toBe(false);
+    expect(isTrackAudible(mix(), true)).toBe(false);
+    expect(isTrackAudible(mix({ solo: true }), true)).toBe(true);
+    expect(isTrackAudible(mix({ solo: true, muted: true }), true)).toBe(false);
+  });
+
+  it('treats a fader at zero as silent and a missing mix as audible', () => {
+    expect(isTrackAudible(mix({ gain: 0 }), false)).toBe(false);
+    expect(isTrackAudible(undefined, false)).toBe(true);
   });
 });
 

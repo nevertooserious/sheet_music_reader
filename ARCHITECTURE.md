@@ -159,19 +159,44 @@ file must build its URL from `import.meta.env.BASE_URL` rather than a leading
 
 ## UI requirements (src/ui)
 
-- Import: drag-and-drop, file picker, and "Load demo" button.
+- Import: drag-and-drop, file picker, and "Load demo" button (the demo button
+  hides once a score is open).
+- Saved scores: every PDF that parses successfully is stored on the device and
+  listed in the header's "Scores" menu, so several scores can be switched
+  between and survive a reload. Metadata lives in IndexedDB `smr.scores` and the
+  bytes in `smr.data`; listing reads metadata only. IndexedDB rather than
+  localStorage because a PDF is megabytes of binary. Rows are labelled with the
+  parsed `ScoreModel.title`, recorded alongside the file name when the score is
+  saved, falling back to the file name when the parser found no title; the file
+  name stays as the row's tooltip. A score is identified by
+  its trimmed, lowercased file name alone, so re-opening a name replaces that
+  entry (newest bytes win) and duplicates cannot accumulate; `save` also drops
+  rows an earlier key scheme left behind, and `list` collapses same-name rows to
+  the most recent. The bundled demo is not saved. Every operation is best
+  effort: with IndexedDB absent or full the app still opens PDFs, and a failed
+  save is reported in the action banner.
+- On mount the UI reopens the most recently opened saved score with no
+  interaction, so a refresh or a return visit lands back on it. Showcases pass
+  `restoreLastScore: false` to keep their scenes independent of what is stored.
 - Score view: rendered pages (via `controller.renderPage`) with a moving
   playhead / current-measure highlight driven by `transport.positionQn` and
-  `score.timeline`; clicking a measure seeks there (`seekToMeasure`). Toolbar
+  `score.timeline`; clicking a measure seeks there (`seekToMeasure`). Sounding
+  notes are ringed only for tracks that are actually audible, so muting a track,
+  soloing another or pulling a fader to -inf dB stops its heads lighting up;
+  the measure box and playhead mark the bar itself and stay put. Toolbar
   zoom (fit width, fit page, 50–300 %; `+`/`-`/`0` keys) plus continuous
   zoom with Ctrl/⌘ + mouse wheel, trackpad pinch and two-finger touch pinch,
   anchored on the pointer (25–400 %), and an auto-scroll toggle that keeps
   the playing bar in view, both remembered in localStorage (`smr.ui.zoom`,
   `smr.ui.follow`).
+- Mixer collapses to a rail (a toolbar strip in the stacked layout) via
+  `[data-action="toggle-mixer"]`, remembered in localStorage (`smr.ui.mixer`).
 - Transport: play/pause/stop, position (measure + mm:ss), seek slider over
   `durationQn`, tempo control (30–240 bpm with reset to the score's tempo).
-- Mixer: one strip per track with name, gain slider, mute, solo, level meter.
-- Status: loading/parsing progress, error banner, parse warnings list.
+- Mixer: one strip per track with name, gain slider, solo, level meter. Mute
+  stays on the engine and controller but has no strip button.
+- Status: loading/parsing progress and error banner. Parse warnings are kept on
+  `ScoreModel.warnings` but are not surfaced in the UI.
 - Test attributes the verifier looks for: `[data-action="toggle-play"]`,
   `[data-control="tempo"]`, `[data-control="seek"]`,
   `[data-control="track-gain"]` (one per track), `[data-role="score-view"]`,

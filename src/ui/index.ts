@@ -5,6 +5,8 @@ import { el } from './dom';
 import { nudgeByMeasure } from './format';
 import { createHeader } from './header';
 import { createImportZone } from './importZone';
+import { createScoreLibrary } from './library';
+import { type LibraryMenu, createLibraryMenu } from './libraryMenu';
 import { type Mixer, createMixer } from './mixer';
 import { type ScoreView, createScoreView } from './scoreView';
 import { createTransportBar } from './transport';
@@ -12,6 +14,11 @@ import { createTransportBar } from './transport';
 export interface UiDeps {
   store: AppStore;
   controller: AppController;
+  /**
+   * Reopen the most recently opened saved score on mount. Default true; the
+   * showcases turn it off so their scenes do not depend on what is stored.
+   */
+  restoreLastScore?: boolean;
 }
 
 export interface MountedApp {
@@ -31,10 +38,26 @@ export function mountApp(root: HTMLElement, deps: UiDeps): MountedApp {
   root.replaceChildren();
   const shell = el('div', { class: 'smr-app' });
 
-  const importZone = createImportZone({ controller, dropTarget: shell });
+  const library = createScoreLibrary();
+  let libraryMenu: LibraryMenu | undefined;
+
+  const importZone = createImportZone({
+    controller,
+    dropTarget: shell,
+    // Only scores that actually parsed are saved, and re-reading the File keeps the load path untouched.
+    // The controller has already published the parsed score, so its title is on the store now.
+    onFileLoaded: (file) =>
+      void libraryMenu?.remember(file.name, () => file.arrayBuffer(), store.getState().score?.title),
+  });
+  libraryMenu = createLibraryMenu({
+    library,
+    onOpen: (entry, data) => importZone.loadData(entry.name, data),
+    onError: (message) => showLocalError(message),
+  });
   const header = createHeader({
     onOpenFile: () => importZone.openFilePicker(),
     onLoadDemo: () => importZone.loadDemo(),
+    actions: [libraryMenu.el],
   });
   const scoreView = createScoreView({ controller });
   const mixer = createMixer({ controller });
@@ -88,6 +111,10 @@ export function mountApp(root: HTMLElement, deps: UiDeps): MountedApp {
     if (frame === undefined) frame = requestAnimationFrame(flush);
   });
   flush();
+  void (async () => {
+    await libraryMenu?.refresh();
+    if (deps.restoreLastScore !== false) await libraryMenu?.openMostRecent();
+  })();
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -155,6 +182,7 @@ export function mountApp(root: HTMLElement, deps: UiDeps): MountedApp {
       if (frame !== undefined) cancelAnimationFrame(frame);
       window.removeEventListener('keydown', onKeyDown);
       header.dispose();
+      libraryMenu?.dispose();
       importZone.dispose();
       scoreView.dispose();
       mixer.dispose();

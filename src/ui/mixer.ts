@@ -1,8 +1,9 @@
 import type { AppController } from '../core/contracts';
 import type { AppState, ScoreModel, Track, TrackMixState } from '../core/types';
 import { el, iconButton, setDisabled, setHidden, setPressed, setText } from './dom';
-import { clamp, clefLabel, formatDb } from './format';
+import { anySolo, clamp, clefLabel, formatDb, isTrackAudible } from './format';
 import { icons } from './icons';
+import { readPref, writePref } from './prefs';
 
 const PEAK_HOLD_MS = 900;
 const PEAK_DECAY_PER_SECOND = 1.2;
@@ -14,12 +15,10 @@ interface Strip {
   root: HTMLElement;
   fader: HTMLInputElement;
   gainText: HTMLElement;
-  muteButton: HTMLButtonElement;
   soloButton: HTMLButtonElement;
   meterCover: HTMLElement;
   peakMark: HTMLElement;
   lastGain: number;
-  lastMuted: boolean | undefined;
   lastSolo: boolean | undefined;
   lastLevel: number;
   peak: number;
@@ -51,7 +50,6 @@ export function createMixer(deps: MixerDeps): Mixer {
   const stripsHost = el('div', { class: 'mixer-strips', role: 'list' });
   const stripsWrap = el('div', { class: 'mixer-strips-wrap' }, [stripsHost]);
   const empty = el('div', { class: 'mixer-empty', text: 'Tracks appear here once a score is loaded.' });
-  const countLabel = el('span', { class: 'toolbar-text', text: '' });
   const moreLabel = el('span', { class: 'mixer-more', text: '', hidden: true, 'aria-live': 'polite' });
   const scrollLeft = iconButton({
     icon: icons.chevronLeft,
@@ -68,10 +66,18 @@ export function createMixer(deps: MixerDeps): Mixer {
     onClick: () => stripsHost.scrollBy({ left: stripPitch(), behavior: 'smooth' }),
   });
   const scrollButtons = el('div', { class: 'mixer-scroll-buttons', hidden: true }, [scrollLeft, scrollRight]);
+  const collapseButton = iconButton({
+    icon: icons.chevronRight,
+    label: 'Collapse mixer',
+    action: 'toggle-mixer',
+    class: 'icon-button-small mixer-collapse',
+    attrs: { 'aria-expanded': 'true' },
+    onClick: () => setCollapsed(!collapsed),
+  });
   const root = el('aside', { class: 'mixer', 'aria-label': 'Mixer' }, [
     el('div', { class: 'mixer-toolbar' }, [
+      collapseButton,
       el('span', { class: 'panel-title', text: 'Mixer' }),
-      countLabel,
       el('span', { class: 'toolbar-spacer' }),
       moreLabel,
       scrollButtons,
@@ -82,6 +88,25 @@ export function createMixer(deps: MixerDeps): Mixer {
 
   let score: ScoreModel | undefined;
   let strips: Strip[] = [];
+  let collapsed = readPref('mixer') === 'collapsed';
+
+  function applyPanels(): void {
+    setHidden(stripsWrap, !score || collapsed);
+    setHidden(empty, !!score || collapsed);
+  }
+
+  function setCollapsed(next: boolean): void {
+    collapsed = next;
+    root.classList.toggle('is-collapsed', next);
+    collapseButton.innerHTML = next ? icons.chevronLeft : icons.chevronRight;
+    const label = next ? 'Expand mixer' : 'Collapse mixer';
+    collapseButton.setAttribute('aria-label', label);
+    collapseButton.title = label;
+    collapseButton.setAttribute('aria-expanded', next ? 'false' : 'true');
+    writePref('mixer', next ? 'collapsed' : 'open');
+    applyPanels();
+    scheduleOverflow();
+  }
   let peakFrame: number | undefined;
   let lastPeakTick = 0;
   let overflowFrame: number | undefined;
@@ -149,16 +174,6 @@ export function createMixer(deps: MixerDeps): Mixer {
         'aria-orientation': 'vertical',
       });
       const gainText = el('span', { class: 'strip-gain', text: formatDb(track.defaultGain) });
-      const muteButton = el('button', {
-        type: 'button',
-        class: 'strip-toggle strip-mute',
-        'data-action': 'mute',
-        'data-track': track.id,
-        'aria-pressed': 'false',
-        'aria-label': `Mute ${track.name}`,
-        title: `Mute ${track.name}`,
-        text: 'M',
-      });
       const soloButton = el('button', {
         type: 'button',
         class: 'strip-toggle strip-solo',
@@ -167,7 +182,7 @@ export function createMixer(deps: MixerDeps): Mixer {
         'aria-pressed': 'false',
         'aria-label': `Solo ${track.name}`,
         title: `Solo ${track.name}`,
-        text: 'S',
+        text: 'Solo',
       });
       const meterCover = el('div', { class: 'meter-cover' });
       const peakMark = el('div', { class: 'meter-peak' });
@@ -190,7 +205,7 @@ export function createMixer(deps: MixerDeps): Mixer {
           ]),
           el('div', { class: 'strip-body' }, [meter, el('div', { class: 'fader-well' }, [fader])]),
           gainText,
-          el('div', { class: 'strip-toggles' }, [muteButton, soloButton]),
+          el('div', { class: 'strip-toggles' }, [soloButton]),
         ],
       );
 
@@ -199,12 +214,10 @@ export function createMixer(deps: MixerDeps): Mixer {
         root: stripRoot,
         fader,
         gainText,
-        muteButton,
         soloButton,
         meterCover,
         peakMark,
         lastGain: -1,
-        lastMuted: undefined,
         lastSolo: undefined,
         lastLevel: -1,
         peak: 0,
@@ -228,9 +241,6 @@ export function createMixer(deps: MixerDeps): Mixer {
         controller.setTrackGain(track.id, gain);
       });
       fader.addEventListener('dblclick', () => controller.setTrackGain(track.id, track.defaultGain));
-      muteButton.addEventListener('click', () => {
-        controller.setTrackMuted(track.id, muteButton.getAttribute('aria-pressed') !== 'true');
-      });
       soloButton.addEventListener('click', () => {
         controller.setTrackSolo(track.id, soloButton.getAttribute('aria-pressed') !== 'true');
       });
@@ -239,7 +249,6 @@ export function createMixer(deps: MixerDeps): Mixer {
     stripsHost.append(...strips.map((s) => s.root));
     root.style.setProperty('--track-count', String(strips.length));
     root.classList.toggle('is-compact', strips.length > COMPACT_ABOVE);
-    setText(countLabel, `${strips.length} track${strips.length === 1 ? '' : 's'}`);
     stripsHost.scrollLeft = 0;
     scheduleOverflow();
   }
@@ -271,9 +280,8 @@ export function createMixer(deps: MixerDeps): Mixer {
     if (peakFrame === undefined) peakFrame = requestAnimationFrame(tickPeaks);
   }
 
-  function applyMix(strip: Strip, mix: TrackMixState | undefined, anySolo: boolean): void {
+  function applyMix(strip: Strip, mix: TrackMixState | undefined, soloActive: boolean): void {
     const gain = mix ? mix.gain : strip.track.defaultGain;
-    const muted = mix ? mix.muted : false;
     const solo = mix ? mix.solo : false;
     const level = mix ? mix.level : 0;
 
@@ -283,18 +291,12 @@ export function createMixer(deps: MixerDeps): Mixer {
       setText(strip.gainText, formatDb(gain));
       strip.fader.setAttribute('aria-valuetext', formatDb(gain));
     }
-    if (muted !== strip.lastMuted) {
-      strip.lastMuted = muted;
-      setPressed(strip.muteButton, muted);
-      strip.muteButton.classList.toggle('is-on', muted);
-    }
     if (solo !== strip.lastSolo) {
       strip.lastSolo = solo;
       setPressed(strip.soloButton, solo);
       strip.soloButton.classList.toggle('is-on', solo);
     }
-    const silenced = muted || (anySolo && !solo);
-    strip.root.classList.toggle('is-silenced', silenced);
+    strip.root.classList.toggle('is-silenced', !isTrackAudible(mix, soloActive));
 
     const shown = clamp(level, 0, 1);
     if (Math.abs(shown - strip.lastLevel) > 0.002) {
@@ -318,19 +320,19 @@ export function createMixer(deps: MixerDeps): Mixer {
         stripsHost.replaceChildren();
         root.style.removeProperty('--track-count');
         root.classList.remove('is-compact');
-        setText(countLabel, '');
         scheduleOverflow();
       }
     }
-    setHidden(empty, !!score);
-    setHidden(stripsWrap, !score);
+    applyPanels();
     if (!score) return;
     const mixes = state.transport.tracks;
-    const anySolo = mixes.some((m) => m.solo);
+    const soloActive = anySolo(mixes);
     for (const strip of strips) {
-      applyMix(strip, mixes.find((m) => m.trackId === strip.track.id), anySolo);
+      applyMix(strip, mixes.find((m) => m.trackId === strip.track.id), soloActive);
     }
   }
+
+  setCollapsed(collapsed);
 
   return {
     el: root,

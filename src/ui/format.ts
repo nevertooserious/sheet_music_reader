@@ -5,6 +5,7 @@ import type {
   ScoreModel,
   TimeSignature,
   TimelineSegment,
+  TrackMixState,
 } from '../core/types';
 import { qnToSeconds } from '../core/types';
 
@@ -111,8 +112,8 @@ export function positionInfo(score: ScoreModel, qn: number): PositionInfo | unde
 
 export function formatPosition(score: ScoreModel | undefined, qn: number): string {
   const info = score ? positionInfo(score, qn) : undefined;
-  if (!info) return 'bar – · beat –';
-  return `bar ${info.bar} · beat ${info.beat}`;
+  if (!info) return 'bar –';
+  return `bar ${info.bar}`;
 }
 
 /** Start of the segment `delta` segments away from the one containing qn, clamped to the timeline. */
@@ -124,6 +125,7 @@ export function nudgeByMeasure(score: ScoreModel, qn: number, delta: number): nu
 }
 
 export interface TrackNotes {
+  trackId: string;
   sorted: NoteEvent[];
   maxDuration: number;
 }
@@ -131,8 +133,24 @@ export interface TrackNotes {
 export function indexTracks(score: ScoreModel): TrackNotes[] {
   return score.tracks.map((t) => {
     const sorted = sortNotes(t.notes);
-    return { sorted, maxDuration: maxDuration(sorted) };
+    return { trackId: t.id, sorted, maxDuration: maxDuration(sorted) };
   });
+}
+
+export function anySolo(tracks: readonly TrackMixState[]): boolean {
+  return tracks.some((t) => t.solo);
+}
+
+/**
+ * Whether a track's bus is sounding: mute wins, then solo (any soloed track
+ * silences the rest), then a fader at zero. A track the engine has no mix
+ * state for yet counts as audible.
+ */
+export function isTrackAudible(mix: TrackMixState | undefined, soloActive: boolean): boolean {
+  if (!mix) return true;
+  if (mix.muted) return false;
+  if (soloActive && !mix.solo) return false;
+  return mix.gain > 0;
 }
 
 export function sortNotes(notes: readonly NoteEvent[]): NoteEvent[] {

@@ -4,12 +4,17 @@ import { el, setHidden, setText } from './dom';
 import { formatPercent } from './format';
 import { icons } from './icons';
 
-type LoadRequest = { kind: 'demo' } | { kind: 'file'; file: File };
+type LoadRequest =
+  | { kind: 'demo' }
+  | { kind: 'file'; file: File }
+  | { kind: 'data'; name: string; data: ArrayBuffer };
 
 export interface ImportZoneDeps {
   controller: AppController;
   /** Element that receives drag-and-drop over the whole app. */
   dropTarget: HTMLElement;
+  /** Fired once a picked or dropped file has parsed, so it can be saved. */
+  onFileLoaded?(file: File): void;
 }
 
 export interface ImportZone {
@@ -19,6 +24,8 @@ export interface ImportZone {
   stage: HTMLElement;
   openFilePicker(): void;
   loadDemo(): void;
+  /** Load already-read bytes through the same progress and error path as a file. */
+  loadData(name: string, data: ArrayBuffer): void;
   update(state: AppState): void;
   dispose(): void;
 }
@@ -41,12 +48,28 @@ export function createImportZone(deps: ImportZoneDeps): ImportZone {
     tabindex: '-1',
   });
 
+  const start = (request: LoadRequest): Promise<void> => {
+    switch (request.kind) {
+      case 'demo':
+        return controller.loadDemo();
+      case 'file':
+        return controller.loadFile(request.file);
+      // pdf.js detaches the buffer it parses, so every attempt gets its own copy and retry keeps working.
+      case 'data':
+        return controller.loadArrayBuffer(request.data.slice(0), request.name);
+    }
+  };
+
   const run = (request: LoadRequest): void => {
     lastRequest = request;
     localError = undefined;
     dismissedError = undefined;
-    const promise = request.kind === 'demo' ? controller.loadDemo() : controller.loadFile(request.file);
-    promise.catch(() => undefined);
+    start(request).then(
+      () => {
+        if (request.kind === 'file') deps.onFileLoaded?.(request.file);
+      },
+      () => undefined,
+    );
   };
 
   const openFilePicker = (): void => {
@@ -54,6 +77,7 @@ export function createImportZone(deps: ImportZoneDeps): ImportZone {
     fileInput.click();
   };
   const loadDemo = (): void => run({ kind: 'demo' });
+  const loadData = (name: string, data: ArrayBuffer): void => run({ kind: 'data', name, data });
 
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
@@ -256,6 +280,7 @@ export function createImportZone(deps: ImportZoneDeps): ImportZone {
     stage,
     openFilePicker,
     loadDemo,
+    loadData,
     update: render,
     dispose() {
       window.removeEventListener('dragend', onWindowDragEnd);

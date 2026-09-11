@@ -5,7 +5,9 @@ import {
   type OnsetAnchor,
   type TrackNotes,
   activeNotes,
+  anySolo,
   indexTracks,
+  isTrackAudible,
   measureUnionBox,
   onsetAnchors,
   playheadX,
@@ -94,8 +96,6 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
   const pagesHost = el('div', { class: 'pages' });
   const scroll = el('div', { class: 'score-scroll', 'data-role': 'score-view', tabindex: '0', 'aria-label': 'Score pages' }, [pagesHost]);
 
-  const pageLabel = el('span', { class: 'toolbar-text', text: '' });
-  const positionLabel = el('span', { class: 'toolbar-text toolbar-text-strong', text: '' });
 
   let zoom: ZoomMode = parseZoom(readPref('zoom')) ?? DEFAULT_ZOOM;
   let following = readPref('follow') !== 'off';
@@ -137,11 +137,7 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
   followButton.addEventListener('click', () => setFollowing(!following));
 
   const toolbar = el('div', { class: 'score-toolbar' }, [
-    el('span', { class: 'panel-title', text: 'Score' }),
-    pageLabel,
     el('span', { class: 'toolbar-spacer' }),
-    positionLabel,
-    el('span', { class: 'toolbar-divider' }),
     el('div', { class: 'toolbar-group', role: 'group', 'aria-label': 'Zoom' }, [zoomOutButton, zoomSelect, zoomInButton]),
     el('span', { class: 'toolbar-divider' }),
     followButton,
@@ -169,7 +165,6 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
   let currentAnchors: OnsetAnchor[] = [];
   let lastNotesKey = '';
   let lastPlaying = false;
-  let lastPositionText = '';
   let lastPositionQn = 0;
   let pendingReveal = false;
   let latestTransport: TransportState = IDLE_TRANSPORT;
@@ -507,7 +502,6 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
     }
     pagesHost.append(...pages.map((p) => p.root));
     for (const page of pages) intersection.observe(page.root);
-    setText(pageLabel, `${pages.length} page${pages.length === 1 ? '' : 's'}`);
   }
 
   function pageDpr(page: PageView): number {
@@ -694,17 +688,15 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       scrollToCurrent(smooth);
     }
     updateNotes(positionQn);
-    const text = `bar ${info.bar}`;
-    if (text !== lastPositionText) {
-      lastPositionText = text;
-      setText(positionLabel, text);
-    }
   }
 
   function updateNotes(positionQn: number): void {
     activeAll.length = 0;
     let key = '';
+    const mixes = latestTransport.tracks;
+    const soloActive = anySolo(mixes);
     for (const track of trackNotes) {
+      if (!isTrackAudible(mixes.find((m) => m.trackId === track.trackId), soloActive)) continue;
       activeNotes(track.sorted, positionQn, track.maxDuration, activeBuffer);
       for (const note of activeBuffer) {
         if (!note.layout) continue;
@@ -775,12 +767,10 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
     renderGeneration++;
     clearCurrent();
     lastNotesKey = '';
-    lastPositionText = '';
     lastPositionQn = 0;
     pendingReveal = false;
     for (const node of notePool) node.remove();
     notePool.length = 0;
-    setText(positionLabel, '');
     if (score) {
       trackNotes = indexTracks(score);
       buildPages(score, infos);
@@ -793,7 +783,6 @@ export function createScoreView(deps: ScoreViewDeps): ScoreView {
       intersection.disconnect();
       pages = [];
       pagesHost.replaceChildren();
-      setText(pageLabel, '');
     }
   }
 

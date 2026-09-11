@@ -269,7 +269,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
   };
 
   root.replaceChildren();
-  const app: MountedApp = mountApp(root, { store, controller });
+  const app: MountedApp = mountApp(root, { store, controller, restoreLastScore: false });
   if (window.__smr) {
     window.__smr.store = store;
     window.__smr.controller = controller;
@@ -413,12 +413,26 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     {
       label: 'Track 2 muted, track 1 gain 40%',
       run: async () => {
-        q<HTMLButtonElement>('[data-action="mute"][data-track="track-2"]')?.click();
+        controller.setTrackMuted('track-2', true);
         const fader = q<HTMLInputElement>('[data-control="track-gain"][data-track="track-1"]');
         if (fader) {
           fader.value = '0.4';
           fire(fader, 'input');
         }
+        await settled();
+      },
+    },
+    {
+      label: 'Mixer collapsed to its rail',
+      run: async () => {
+        q<HTMLButtonElement>('[data-action="toggle-mixer"]')?.click();
+        await settled();
+      },
+    },
+    {
+      label: 'Mixer expanded again',
+      run: async () => {
+        q<HTMLButtonElement>('[data-action="toggle-mixer"]')?.click();
         await settled();
       },
     },
@@ -481,12 +495,11 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       },
     },
     {
-      label: 'Parse warnings expanded',
+      label: 'Back to fit width, auto-scroll on, paused',
       run: async () => {
         chooseZoom('fit-width');
         setFollow(true);
         controller.pause();
-        q<HTMLButtonElement>('[data-action="toggle-warnings"]')?.click();
         await waitFor(rerendered);
         await nextFrame();
       },
@@ -494,8 +507,6 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     {
       label: 'Error banner',
       run: async () => {
-        const toggle = q<HTMLButtonElement>('[data-action="toggle-warnings"]');
-        if (toggle?.getAttribute('aria-expanded') === 'true') toggle.click();
         chooseFile('corrupt-download.pdf', 0);
         await waitFor(() => store.getState().status === 'error');
         await settled();
@@ -514,8 +525,18 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       },
     },
     {
+      label: 'Saved scores menu open',
+      run: async () => {
+        await waitFor(() => !!q('[data-action="toggle-library"]:not([hidden])'));
+        q<HTMLButtonElement>('[data-action="toggle-library"]')?.click();
+        await settled();
+      },
+    },
+    {
       label: 'Scanned PDF rejected',
       run: async () => {
+        const library = q<HTMLButtonElement>('[data-action="toggle-library"]');
+        if (library?.getAttribute('aria-expanded') === 'true') library.click();
         chooseFile('scanned-score.pdf', 16);
         await waitFor(() => store.getState().status === 'error');
         await settled();
@@ -529,7 +550,6 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     '[data-control="seek"]',
     '[data-control="tempo"]',
     '[data-control="track-gain"]',
-    '[data-action="mute"]',
     '[data-action="solo"]',
     '[data-role="score-view"]',
     '[data-control="zoom"]',
@@ -552,7 +572,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
       const state: AppState = store.getState();
       const requiredAttributes: Record<string, boolean> = {};
       for (const selector of required) requiredAttributes[selector] = !!q(selector);
-      const scoreDependent = ['[data-control="track-gain"]', '[data-action="mute"]', '[data-action="solo"]'];
+      const scoreDependent = ['[data-control="track-gain"]', '[data-action="solo"]'];
       const allPresent = required.every((s) => requiredAttributes[s] || (!state.score && scoreDependent.includes(s)));
       const playhead = q<HTMLElement>('.playhead');
       const render = app.scoreView.getRenderStats();
