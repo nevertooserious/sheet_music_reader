@@ -787,8 +787,8 @@
   height: calc(15px * var(--page-scale));
   margin: calc(-7.5px * var(--page-scale));
   border-radius: 50%;
-  background: rgba(255, 180, 84, 0.35);
-  box-shadow: 0 0 0 1.5px var(--accent-2), 0 0 10px rgba(255, 180, 84, 0.75);
+  background: rgba(30, 58, 138, 0.35);
+  box-shadow: 0 0 0 1.5px #1e3a8a, 0 0 10px rgba(30, 58, 138, 0.75);
   will-change: transform;
 }
 
