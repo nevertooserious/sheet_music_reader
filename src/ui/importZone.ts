@@ -231,7 +231,7 @@ export function createImportZone(deps: ImportZoneDeps): ImportZone {
 
   const stage = el('div', { class: 'score-stage' }, [emptyState, progressState, errorState]);
 
-  let latest: AppState = { status: 'idle', pages: [], transport: { playing: false, positionQn: 0, tempoBpm: 100, masterGain: 1, tracks: [], contextState: 'none' } };
+  let latest: AppState = { status: 'idle', pages: [], transport: { playing: false, positionQn: 0, tempoBpm: 100, masterGain: 1, loop: false, tracks: [], contextState: 'none' } };
   let lastProgressKey = '';
 
   function render(state: AppState): void {

@@ -391,6 +391,72 @@ describe('end of score, pause and stop', () => {
   });
 });
 
+describe('loop', () => {
+  const firstPassSeconds = (score: ScoreModel, bpm: number): number => qnToSeconds(score.durationQn, bpm);
+
+  it('repeats without a gap: the second pass starts exactly where the first ends, every note once per pass', async () => {
+    const { engine, fake } = harness();
+    const score = createDemoScore();
+    const total = score.tracks.reduce((n, t) => n + t.notes.length, 0);
+    engine.load(score);
+    engine.setTempo(300);
+    engine.setLoop(true);
+    expect(engine.getState().loop).toBe(true);
+    await engine.play();
+    const passSeconds = firstPassSeconds(score, 300);
+    await run(fake, passSeconds * 1000 * 1.5);
+    expect(engine.getState().playing).toBe(true);
+    expect(engine.getState().positionQn).toBeLessThan(score.durationQn * 0.75);
+    const log = engine.getScheduledLog();
+    const starts = log.filter((n) => n.qn === 0).map((n) => n.time);
+    const firstPass = starts.filter((t) => t < starts[0] + passSeconds / 2);
+    const secondPass = starts.filter((t) => t >= starts[0] + passSeconds / 2);
+    expect(firstPass.length).toBeGreaterThan(0);
+    expect(secondPass.length).toBe(firstPass.length);
+    for (const t of secondPass) expect(t - firstPass[0]).toBeCloseTo(passSeconds, 6);
+    const firstPassKeys = log.filter((n) => n.time < firstPass[0] + passSeconds - 1e-6).map(noteKey);
+    expect(firstPassKeys.length).toBe(total);
+    expect(new Set(firstPassKeys).size).toBe(total);
+  });
+
+  it('turning repeat off before the end stops there and keeps the last notes', async () => {
+    const { engine, fake } = harness();
+    const score = createDemoScore();
+    const total = score.tracks.reduce((n, t) => n + t.notes.length, 0);
+    engine.load(score);
+    engine.setTempo(300);
+    engine.setLoop(true);
+    await engine.play();
+    const passMs = firstPassSeconds(score, 300) * 1000;
+    // Inside the lookahead of the end: the next pass is already queued.
+    await run(fake, passMs - 60);
+    engine.setLoop(false);
+    await run(fake, 1000);
+    expect(engine.getState()).toMatchObject({ playing: false, positionQn: score.durationQn, loop: false });
+    const keys = engine.getScheduledLog().map(noteKey);
+    expect(keys.length).toBe(total);
+    expect(new Set(keys).size).toBe(total);
+  });
+
+  it('seeking and tempo changes near the end still wrap, and repeat survives load()', async () => {
+    const { engine, fake } = harness();
+    const score = createDemoScore();
+    engine.load(score);
+    engine.setTempo(300);
+    engine.setLoop(true);
+    await engine.play();
+    const passMs = firstPassSeconds(score, 300) * 1000;
+    await run(fake, passMs - 60);
+    engine.setTempo(240);
+    engine.seek(score.durationQn - 0.5);
+    await run(fake, 1000);
+    expect(engine.getState().playing).toBe(true);
+    expect(engine.getState().positionQn).toBeLessThan(score.durationQn / 2);
+    engine.load(createDemoScore());
+    expect(engine.getState()).toMatchObject({ loop: true, playing: false, positionQn: 0 });
+  });
+});
+
 describe('mixer', () => {
   it('applies mute and solo to the track buses and ignores NaN gains', async () => {
     const { engine, fake } = harness();

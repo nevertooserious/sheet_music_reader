@@ -151,6 +151,8 @@ export interface TransportState {
   positionQn: number;
   tempoBpm: number;
   masterGain: number;
+  /** Repeat: reaching the end of the score continues from the start instead of stopping. */
+  loop: boolean;
   tracks: TrackMixState[];
   /** Web Audio context state, for diagnostics. */
   contextState: 'suspended' | 'running' | 'closed' | 'none';

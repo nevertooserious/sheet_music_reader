@@ -9,6 +9,7 @@ import { createScoreLibrary } from './library';
 import { type LibraryMenu, createLibraryMenu } from './libraryMenu';
 import { type Mixer, createMixer } from './mixer';
 import { type ScoreView, createScoreView } from './scoreView';
+import { writePref } from './prefs';
 import { createTransportBar } from './transport';
 
 export interface UiDeps {
@@ -162,6 +163,14 @@ export function mountApp(root: HTMLElement, deps: UiDeps): MountedApp {
         event.preventDefault();
         scoreView.zoomOut();
         return;
+      case 'l':
+      case 'L': {
+        event.preventDefault();
+        const next = !state.transport.loop;
+        writePref('loop', next ? 'on' : 'off');
+        controller.setLoop(next);
+        return;
+      }
       case '0':
         if (!score) return;
         event.preventDefault();

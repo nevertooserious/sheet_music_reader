@@ -115,6 +115,12 @@ export interface AudioEngine {
   /** Quarter notes per minute, clamped to [20, 300]. Takes effect immediately, even while playing. */
   setTempo(bpm: number): void;
   setMasterGain(gain: number): void;
+  /**
+   * Repeat the whole score. While on, reaching `durationQn` continues from 0
+   * without a gap (the opening notes are scheduled against the end time) and
+   * playback never pauses at the end. Survives load(); takes effect immediately.
+   */
+  setLoop(loop: boolean): void;
   setTrackGain(trackId: string, gain: number): void;
   setTrackMuted(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, solo: boolean): void;
@@ -163,6 +169,7 @@ export interface AppController {
   seekToMeasure(measureIndex: number): void;
   setTempo(bpm: number): void;
   setMasterGain(gain: number): void;
+  setLoop(loop: boolean): void;
   setTrackGain(trackId: string, gain: number): void;
   setTrackMuted(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, solo: boolean): void;

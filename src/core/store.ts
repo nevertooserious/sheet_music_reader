@@ -6,6 +6,7 @@ export const initialTransport: TransportState = {
   positionQn: 0,
   tempoBpm: 100,
   masterGain: 0.9,
+  loop: false,
   tracks: [],
   contextState: 'none',
 };

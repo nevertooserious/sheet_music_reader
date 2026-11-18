@@ -31,6 +31,7 @@ function fakeEngine(): AudioEngine & { calls: string[] } {
     seek: () => undefined,
     setTempo: () => undefined,
     setMasterGain: () => undefined,
+    setLoop: () => undefined,
     setTrackGain: () => undefined,
     setTrackMuted: () => undefined,
     setTrackSolo: () => undefined,

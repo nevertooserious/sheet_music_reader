@@ -3,6 +3,7 @@ import type { AppState } from '../core/types';
 import { el, iconButton, setDisabled, setPressed, setText } from './dom';
 import { TEMPO_MAX, TEMPO_MIN, clamp, formatBpm, formatPercent, formatPosition, formatQnClock } from './format';
 import { icons } from './icons';
+import { readPref, writePref } from './prefs';
 
 export interface TransportDeps {
   controller: AppController;
@@ -49,6 +50,19 @@ export function createTransportBar(deps: TransportDeps): TransportBar {
       deps.onUserSeek?.();
     },
   });
+
+  const loopButton = iconButton({
+    icon: icons.repeat,
+    label: 'Repeat (L)',
+    action: 'toggle-loop',
+    attrs: { 'aria-pressed': 'false' },
+    onClick: () => {
+      const next = !lastLoop;
+      writePref('loop', next ? 'on' : 'off');
+      controller.setLoop(next);
+    },
+  });
+  if (readPref('loop') === 'on') controller.setLoop(true);
 
   const barBeat = el('div', { class: 'transport-bar-beat', 'data-role': 'position', text: 'bar –' });
   const elapsed = el('span', { class: 'transport-elapsed', text: '0:00' });
@@ -152,7 +166,7 @@ export function createTransportBar(deps: TransportDeps): TransportBar {
   master.addEventListener('input', () => controller.setMasterGain(Number(master.value)));
 
   const root = el('footer', { class: 'transport', role: 'region', 'aria-label': 'Transport' }, [
-    el('div', { class: 'transport-buttons' }, [rewindButton, playButton, stopButton]),
+    el('div', { class: 'transport-buttons' }, [rewindButton, playButton, stopButton, loopButton]),
     el('div', { class: 'transport-position' }, [barBeat, clock]),
     el('div', { class: 'transport-seek' }, [seek]),
     el('div', { class: 'transport-group transport-tempo' }, [
@@ -173,6 +187,7 @@ export function createTransportBar(deps: TransportDeps): TransportBar {
   let lastPlaying: boolean | undefined;
   let lastTempo: number | undefined;
   let lastMaster: number | undefined;
+  let lastLoop = false;
   let lastPositionText = '';
   let lastElapsed = '';
   let lastTotal = '';
@@ -197,6 +212,14 @@ export function createTransportBar(deps: TransportDeps): TransportBar {
     setDisabled(playButton, !hasScore);
     setDisabled(stopButton, !hasScore);
     setDisabled(rewindButton, !hasScore);
+    if (transport.loop !== lastLoop) {
+      lastLoop = transport.loop;
+      setPressed(loopButton, transport.loop);
+      loopButton.classList.toggle('is-on', transport.loop);
+      const label = transport.loop ? 'Repeat is on (L)' : 'Repeat (L)';
+      loopButton.title = label;
+      loopButton.setAttribute('aria-label', label);
+    }
     setDisabled(seek, !hasScore);
     setDisabled(tempoSlider, !hasScore);
     setDisabled(tempoNumber, !hasScore);

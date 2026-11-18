@@ -31,6 +31,7 @@ interface MockTransport {
   seek(qn: number): void;
   setTempo(bpm: number): void;
   setMasterGain(gain: number): void;
+  setLoop(loop: boolean): void;
   setTrackGain(id: string, gain: number): void;
   setTrackMuted(id: string, muted: boolean): void;
   setTrackSolo(id: string, solo: boolean): void;
@@ -77,7 +78,11 @@ function createMockTransport(publish: (state: TransportState) => void): MockTran
     if (!state.playing || !score) return;
     const elapsed = (performance.now() - anchorTime) / 1000;
     let positionQn = anchorQn + secondsToQn(elapsed, state.tempoBpm);
-    if (positionQn >= score.durationQn) {
+    if (positionQn >= score.durationQn && state.loop && score.durationQn > 0) {
+      positionQn %= score.durationQn;
+      anchorQn = positionQn;
+      anchorTime = performance.now();
+    } else if (positionQn >= score.durationQn) {
       state = { ...state, playing: false, positionQn: score.durationQn, contextState: 'suspended' };
       state = { ...state, tracks: levels(state.positionQn) };
       emit();
@@ -140,6 +145,9 @@ function createMockTransport(publish: (state: TransportState) => void): MockTran
     },
     setMasterGain(gain) {
       set({ masterGain: clamp(gain, 0, 1) });
+    },
+    setLoop(loop) {
+      set({ loop });
     },
     setTrackGain(id, gain) {
       set({ tracks: state.tracks.map((t) => (t.trackId === id ? { ...t, gain: clamp(gain, 0, 1) } : t)) });
@@ -256,6 +264,7 @@ export async function createShowcase(root: HTMLElement): Promise<Showcase> {
     },
     setTempo: (bpm) => transport.setTempo(bpm),
     setMasterGain: (gain) => transport.setMasterGain(gain),
+    setLoop: (loop) => transport.setLoop(loop),
     setTrackGain: (id, gain) => transport.setTrackGain(id, gain),
     setTrackMuted: (id, muted) => transport.setTrackMuted(id, muted),
     setTrackSolo: (id, solo) => transport.setTrackSolo(id, solo),

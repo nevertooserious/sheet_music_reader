@@ -38,7 +38,7 @@ const KEEP_MARGIN_PAGES = 2;
 const SEEK_JUMP_QN = 1;
 /** Fallback for environments where a devicePixelRatio change fires no resize or media-query event. */
 const DPR_POLL_MS = 1000;
-const IDLE_TRANSPORT: TransportState = { playing: false, positionQn: 0, tempoBpm: 100, masterGain: 1, tracks: [], contextState: 'none' };
+const IDLE_TRANSPORT: TransportState = { playing: false, positionQn: 0, tempoBpm: 100, masterGain: 1, loop: false, tracks: [], contextState: 'none' };
 
 interface PageView {
   info: PageInfo;

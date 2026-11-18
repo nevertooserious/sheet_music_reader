@@ -182,6 +182,15 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
   let tempoBpm = INITIAL_TEMPO;
   let masterGain = INITIAL_MASTER_GAIN;
   let anchor: ClockAnchor = { anchorQn: 0, anchorTime: 0, tempoBpm };
+  let loop = false;
+  /**
+   * While looping, once the end of the score is inside the lookahead window the next pass is scheduled
+   * against this anchor (qn 0 at the exact end time) so the repeat has no gap; it replaces `anchor` when
+   * the clock reaches the end. Seek, tempo changes and stopping drop it with the pending notes.
+   */
+  let nextPass: ClockAnchor | undefined;
+  /** Bumped per pass so the opening notes of the next pass never collide with the same notes still ringing. */
+  let pass = 0;
   const voices = new Map<string, LiveVoice>();
   const log: ScheduledNote[] = [];
   const listeners = new Set<(state: TransportState) => void>();
@@ -206,6 +215,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
       positionQn: livePosition(),
       tempoBpm,
       masterGain,
+      loop,
       tracks: mix,
       contextState: contextStateOf(ctx),
     };
@@ -271,21 +281,21 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     }
   }
 
-  const voiceKey = (rt: TrackRuntime, noteIndex: number): string => `${rt.track.id}:${noteIndex}`;
+  const voiceKey = (rt: TrackRuntime, noteIndex: number, notePass: number): string => `${rt.track.id}:${noteIndex}:${notePass}`;
 
   function forget(key: string, live: LiveVoice): void {
     voices.delete(key);
     if (live.track.lastByMidi.get(live.note.midi) === live) live.track.lastByMidi.delete(live.note.midi);
   }
 
-  function startNote(rt: TrackRuntime, noteIndex: number, now: number): void {
+  function startNote(rt: TrackRuntime, noteIndex: number, now: number, clock: ClockAnchor = anchor, notePass: number = pass): void {
     const context = ctx;
     const bus = rt.bus;
     if (!context || !bus) return;
-    const key = voiceKey(rt, noteIndex);
+    const key = voiceKey(rt, noteIndex, notePass);
     if (voices.has(key)) return;
     const note = rt.notes[noteIndex];
-    const timing = noteTiming(anchor, note, now);
+    const timing = noteTiming(clock, note, now);
     const previous = rt.lastByMidi.get(note.midi);
     if (previous && previous.voice.startTime <= timing.start && previous.voice.stopTime > timing.start) {
       previous.voice.choke(timing.start - RETRIGGER_LEAD_SECONDS);
@@ -316,8 +326,8 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     rt.lastByMidi.set(note.midi, live);
   }
 
-  function scheduleTrack(rt: TrackRuntime, untilQn: number, now: number): void {
-    while (rt.cursor < rt.notes.length && rt.notes[rt.cursor].startQn < untilQn) startNote(rt, rt.cursor++, now);
+  function scheduleTrack(rt: TrackRuntime, untilQn: number, now: number, clock: ClockAnchor = anchor, notePass: number = pass): void {
+    while (rt.cursor < rt.notes.length && rt.notes[rt.cursor].startQn < untilQn) startNote(rt, rt.cursor++, now, clock, notePass);
   }
 
   /** Notes that began before `qn` and are still sounding there start now, joined mid-envelope. */
@@ -329,12 +339,53 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     if (!playing || !ctx || !score) return;
     const now = ctx.currentTime;
     if (positionAt(anchor, now) >= score.durationQn) {
+      reachEnd(now);
+      if (!playing) return;
+    }
+    horizonSeconds = horizonFor(isHidden());
+    const ahead = now + horizonSeconds;
+    if (nextPass) {
+      scheduleNextPass(ahead, now);
+      return;
+    }
+    const untilQn = Math.min(positionAt(anchor, ahead), score.durationQn);
+    for (const rt of tracks) scheduleTrack(rt, untilQn, now);
+    if (loop && untilQn >= score.durationQn) {
+      nextPass = { anchorQn: 0, anchorTime: timeForQn(anchor, score.durationQn), tempoBpm: anchor.tempoBpm };
+      resetCursors(0);
+      scheduleNextPass(ahead, now);
+    }
+  }
+
+  function scheduleNextPass(ahead: number, now: number): void {
+    if (!nextPass || !score) return;
+    const untilQn = Math.min(positionAt(nextPass, ahead), score.durationQn);
+    // positionAt clamps to 0 before the pass starts, and nothing starts before qn 0.
+    if (ahead <= nextPass.anchorTime) return;
+    for (const rt of tracks) scheduleTrack(rt, untilQn, now, nextPass, pass + 1);
+  }
+
+  /** The clock passed the end: wrap to the start when looping, otherwise stop there. */
+  function reachEnd(now: number): void {
+    if (!loop || !score || score.durationQn <= 0) {
       finish();
       return;
     }
-    horizonSeconds = horizonFor(isHidden());
-    const untilQn = Math.min(positionAt(anchor, now + horizonSeconds), score.durationQn);
-    for (const rt of tracks) scheduleTrack(rt, untilQn, now);
+    if (nextPass) {
+      anchor = nextPass;
+    } else {
+      anchor = { anchorQn: 0, anchorTime: Math.max(timeForQn(anchor, score.durationQn), now + SCHEDULER.startLatencySeconds), tempoBpm: anchor.tempoBpm };
+      resetCursors(0);
+    }
+    nextPass = undefined;
+    pass++;
+    notify();
+  }
+
+  /** Before re-anchoring: complete a wrap that is already due, then forget any queued next pass. */
+  function settleWrap(now: number): void {
+    if (playing && score && positionAt(anchor, now) >= score.durationQn) reachEnd(now);
+    nextPass = undefined;
   }
 
   function removeLogEntry(entry: ScheduledNote): void {
@@ -420,7 +471,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     if (disposed) return;
     const dt = lastFrameTime ? Math.min(0.1, (timestamp - lastFrameTime) / 1000) : 1 / 60;
     lastFrameTime = timestamp;
-    if (playing && ctx && score && positionAt(anchor, ctx.currentTime) >= score.durationQn) finish();
+    if (playing && ctx && score && positionAt(anchor, ctx.currentTime) >= score.durationQn) reachEnd(ctx.currentTime);
     const active = updateLevels(dt);
     notify();
     if (playing || active) frame = requestFrame(frameTick);
@@ -437,6 +488,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
   /** End of score: the transport stops at durationQn while the last notes ring out naturally. */
   function finish(): void {
     playing = false;
+    nextPass = undefined;
     positionQn = durationQn();
     stopTicker();
     voices.clear();
@@ -446,6 +498,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
   }
 
   function halt(now: number): void {
+    settleWrap(now);
     positionQn = Math.min(positionAt(anchor, now), durationQn());
     playing = false;
     stopTicker();
@@ -463,6 +516,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
   function startPlayback(context: AudioContext): void {
     if (!score) return;
     if (positionQn >= score.durationQn) positionQn = 0;
+    nextPass = undefined;
     const now = context.currentTime;
     anchor = { anchorQn: positionQn, anchorTime: now + SCHEDULER.startLatencySeconds, tempoBpm };
     resetCursors(positionQn);
@@ -503,6 +557,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     const clamped = Math.min(Math.max(0, target), score.durationQn);
     if (playing && ctx) {
       const now = ctx.currentTime;
+      settleWrap(now);
       const spansTarget = (live: LiveVoice): boolean =>
         live.note.startQn < clamped - QN_EPSILON && live.note.startQn + live.note.durationQn > clamped + QN_EPSILON;
       releaseAll(now, spansTarget);
@@ -524,6 +579,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     tempoBpm = next;
     if (playing && ctx) {
       const now = ctx.currentTime;
+      settleWrap(now);
       cancelPending(now);
       anchor = rebase(anchor, now, { tempoBpm: next });
       retimeSounding();
@@ -550,6 +606,7 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
     playToken++;
     if (playing && ctx) releaseAll(ctx.currentTime);
     playing = false;
+    nextPass = undefined;
     stopTicker();
     voices.clear();
     teardownTrackNodes();
@@ -659,6 +716,22 @@ export function createAudioEngine(options: EngineOptions = {}): AudioEngineInter
       if (!Number.isFinite(gain)) return;
       masterGain = clampGain(gain);
       if (ctx && master) master.gain.setTargetAtTime(masterGain, ctx.currentTime, GAIN_SMOOTHING_SECONDS);
+      notify();
+    },
+    setLoop(next) {
+      const on = !!next;
+      if (on === loop) return;
+      loop = on;
+      if (!loop && nextPass && ctx) {
+        // The queued opening notes of the next pass must not sound once repeat is off.
+        const now = ctx.currentTime;
+        settleWrap(now);
+        cancelPending(now);
+        if (playing) {
+          resetCursors(positionAt(anchor, now));
+          tick();
+        }
+      }
       notify();
     },
     setTrackGain(trackId, gain) {

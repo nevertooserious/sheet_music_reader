@@ -19,6 +19,7 @@ const CONTRACT_METHODS: (keyof AudioEngine)[] = [
   'seek',
   'setTempo',
   'setMasterGain',
+  'setLoop',
   'setTrackGain',
   'setTrackMuted',
   'setTrackSolo',

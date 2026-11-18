@@ -104,6 +104,7 @@ export function createController(
     },
     setTempo: (bpm) => engine.setTempo(bpm),
     setMasterGain: (gain) => engine.setMasterGain(gain),
+    setLoop: (loop) => engine.setLoop(loop),
     setTrackGain: (id, gain) => engine.setTrackGain(id, gain),
     setTrackMuted: (id, muted) => engine.setTrackMuted(id, muted),
     setTrackSolo: (id, solo) => engine.setTrackSolo(id, solo),
