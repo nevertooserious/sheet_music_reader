@@ -78,4 +78,16 @@ describe('tuplet grouping', () => {
     ];
     expect(detectTuplets([label], items, [], brackets, staff)[0]?.source).toBe('bracket');
   });
+
+  it('leaves out a whole note held under a bracket of shorter notes', () => {
+    const label: TupletLabel = { cx: 115, y: 82, size: 10, actual: 3 };
+    const brackets = [
+      { x1: 97, x2: 111, y: 78, thickness: 0.5 },
+      { x1: 119, x2: 133, y: 78, thickness: 0.5 },
+    ];
+    const withWhole = [...items, { id: 'w', cx: 101, y: 118, whole: true }];
+    expect(detectTuplets([label], withWhole, [], brackets, staff)[0]?.itemIds).toEqual(['a', 'b', 'c']);
+    const onlyWholes = [{ id: 'w1', cx: 100, y: 110, whole: true }, { id: 'w2', cx: 130, y: 110, whole: true }];
+    expect(detectTuplets([label], onlyWholes, [], brackets, staff)[0]?.itemIds).toEqual(['w1', 'w2']);
+  });
 });

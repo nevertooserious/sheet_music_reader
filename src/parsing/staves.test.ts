@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ClassifiedGlyph, PathShape } from './model';
-import { detectBarlines, detectStaves, groupSystems, horizontalLines, measureRegions, mergeCollinear, verticalLines } from './staves';
+import { detectBarlines, detectStaves, groupSystems, horizontalLines, measureRegions, mergeCollinear, slantedBrackets, verticalLines } from './staves';
 
 function hline(x1: number, x2: number, y: number, lineWidth = 0.5): PathShape {
   return { page: 0, kind: 'stroke', subpaths: [[{ x: x1, y }, { x: x2, y }]], bbox: { minX: x1, maxX: x2, minY: y, maxY: y }, lineWidth, hasCurves: false };
@@ -127,5 +127,35 @@ describe('collinear segments', () => {
     const staves = detectStaves(paths, 0);
     expect(staves).toHaveLength(1);
     expect([staves[0].x1, staves[0].x2]).toEqual([30, 500]);
+  });
+});
+
+describe('slanted tuplet brackets', () => {
+  const seg = (x1: number, y1: number, x2: number, y2: number): PathShape => ({
+    page: 0,
+    kind: 'stroke',
+    subpaths: [[{ x: x1, y: y1 }, { x: x2, y: y2 }]],
+    bbox: { minX: Math.min(x1, x2), maxX: Math.max(x1, x2), minY: Math.min(y1, y2), maxY: Math.max(y1, y2) },
+    lineWidth: 0.48,
+    hasCurves: false,
+  });
+
+  it('reads both halves of a sloped bracket that ends in hooks (Apple Tree bar 121, bass)', () => {
+    const paths = [seg(124.98, 649.08, 124.98, 653.16), seg(173.58, 651.06, 173.58, 655.14), seg(124.98, 649.2, 145.62, 650.1), seg(152.94, 650.34, 173.58, 651.18)];
+    const found = slantedBrackets(paths, 3.96);
+    expect(found.map((h) => [h.x1, h.x2])).toEqual([
+      [124.98, 145.62],
+      [152.94, 173.58],
+    ]);
+    expect(found[0].y).toBeCloseTo(649.65);
+  });
+
+  it('ignores sloped strokes without a hook (hairpins) and steep ones', () => {
+    expect(slantedBrackets([seg(100, 200, 160, 197), seg(100, 200, 160, 203)], 4)).toEqual([]);
+    expect(slantedBrackets([seg(100, 196, 100, 200), seg(100, 200, 120, 190)], 4)).toEqual([]);
+  });
+
+  it('leaves flat strokes to the horizontal-line reader', () => {
+    expect(slantedBrackets([seg(100, 196, 100, 200), seg(100, 200, 140, 200)], 4)).toEqual([]);
   });
 });

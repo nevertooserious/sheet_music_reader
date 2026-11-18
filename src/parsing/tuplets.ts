@@ -17,6 +17,8 @@ export interface TupletItem {
   y: number;
   stemId?: number;
   grace?: boolean;
+  /** Whole note or breve: never part of a tuplet of shorter notes it is printed under. */
+  whole?: boolean;
 }
 
 export interface TupletGroup {
@@ -86,7 +88,9 @@ export function detectTuplets(labels: TupletLabel[], items: TupletItem[], beams:
       }
     }
     if (!range) continue;
-    const members = items.filter((it) => !it.grace && !taken.has(it.id) && it.cx >= range![0] - 0.3 * sp && it.cx <= range![1] + 0.3 * sp);
+    const inRange = items.filter((it) => !it.grace && !taken.has(it.id) && it.cx >= range![0] - 0.3 * sp && it.cx <= range![1] + 0.3 * sp);
+    // A whole note held under a triplet belongs to another voice.
+    const members = inRange.some((it) => !it.whole) ? inRange.filter((it) => !it.whole) : inRange;
     if (!members.length) continue;
     const normal = tupletNormal(label.actual, label.normal);
     for (const m of members) taken.add(m.id);

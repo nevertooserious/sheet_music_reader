@@ -81,4 +81,82 @@ describe.skipIf(!available)('Apple Tree (external Sibelius export)', () => {
     expect(score.timeSignatures.every((t) => t.beats === 2 && t.beatType === 2)).toBe(true);
     expect(score.durationQn).toBeGreaterThan(4 * 60);
   });
+
+  it('reads the bar 121 triplets on the staff they are printed on (page 16)', async () => {
+    const { score, debug } = await parsePages();
+    const m = score.measures[120];
+    const bar = (name: string) =>
+      score.tracks
+        .find((t) => t.name === name)!
+        .notes.filter((n) => n.measure === 120)
+        .map((n) => [n.midi, +(n.startQn - m.firstStartQn).toFixed(3), +n.durationQn.toFixed(3)]);
+    const triplet = (pitches: number[]) => pitches.map((p, i) => [p, +((i * 2) / 3).toFixed(3), 0.667]);
+    expect(debug.tuplets.map((t) => [t.page, t.staff])).toEqual([
+      [15, 5],
+      [15, 5],
+      [15, 6],
+      [15, 6],
+    ]);
+    // Tenor: two quarter-note triplets under flat brackets.
+    expect(bar('Staff 5')).toEqual(triplet([62, 59, 62, 61, 59, 61]));
+    // Bass: the second bracket is slanted; the whole note under the first is not part of it.
+    expect(bar('Staff 6')).toEqual([[52, 0, 4], ...triplet([57, 54, 57, 56, 54, 52])]);
+    // Alto 2 sits above the tenor's triplet numbers but has none of its own.
+    expect(bar('Staff 4')).toEqual([
+      [59, 0, 1.5],
+      [59, 1.5, 1.5],
+      [59, 3, 5],
+    ]);
+    // Alto 1: a dotted chord with a second, its dots aligned after the offset head.
+    // (The eighth is tied to the following quarter, and the last quarter into bar 122.)
+    expect(bar('Staff 3').filter(([p]) => p === 64)).toEqual([
+      [64, 0, 1.5],
+      [64, 1.5, 1.5],
+      [64, 3, 5],
+    ]);
+    expect(score.warnings.some((w) => w.startsWith('Measure 121,'))).toBe(false);
+  });
+
+  it('reads every bar of the score to its full length, without fallbacks', async () => {
+    const { score } = await parsePages();
+    expect(score.warnings.filter((w) => w.startsWith('Measure '))).toEqual([]);
+    const bar = (name: string, b: number) => {
+      const m = score.measures[b - 1];
+      return score.tracks
+        .find((t) => t.name === name)!
+        .notes.filter((n) => n.measure === b - 1)
+        .map((n) => [n.midi, +(n.startQn - m.firstStartQn).toFixed(3), +n.durationQn.toFixed(3)]);
+    };
+    // Two voices a second apart, the lower one with hidden rests.
+    expect(bar('Staff 2', 41)).toEqual([
+      [64, 0, 1],
+      [66, 0, 1],
+      [64, 2, 1],
+    ]);
+    // Bass: whole note held under quarter, two eighths, half.
+    expect(bar('Staff 6', 122)).toEqual([
+      [52, 0, 4],
+      [54, 0, 1],
+      [50, 1, 0.5],
+      [49, 1.5, 0.5],
+      [50, 2, 2],
+    ]);
+    // Ties on a chord with a second (offset heads, the whole-note second offset the other way in bar 114)
+    // hold instead of re-striking: bars 112 and 114 start nothing new for E and F#.
+    for (const b of [111, 113]) {
+      expect(bar('Staff 2', b).filter(([p]) => p === 64 || p === 66)).toEqual([
+        [64, 0, 1.5],
+        [66, 0, 1.5],
+        [64, 1.5, 1.5],
+        [66, 1.5, 1.5],
+        [64, 3, 5],
+        [66, 3, 5],
+      ]);
+    }
+    expect(bar('Staff 2', 112)).toEqual([]);
+    expect(bar('Staff 2', 114)).toEqual([[72, 0, 4]]);
+    // The free slide's circled-cross head holds its bar.
+    expect(bar('Staff 1', 121)).toEqual([[50, 0, 4]]);
+  });
 });
+

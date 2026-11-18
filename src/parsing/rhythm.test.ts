@@ -120,4 +120,47 @@ describe('stemless chords', () => {
     // Two stemless whole notes a head width apart but a third apart are still two onsets.
     expect(clusterByX([note('c', 10, 4, { y: 100 }), note('e', 10 + 1.3 * SP, 4, { y: 95 })], SP)).toHaveLength(2);
   });
+
+  it('joins a wide whole-note second (Opus heads, 1.8 sp apart) into one chord', () => {
+    const four = { ...opts, measureQn: 4 };
+    const r = assembleMeasure([note('e', 10, 4, { y: 100 }), note('f', 10 + 1.8 * SP, 4, { y: 97.5 })], four);
+    expect(r.method).toBe('single');
+    expect([r.onsets.get('e'), r.onsets.get('f')]).toEqual([0, 0]);
+  });
+
+  it('gives centred rests to the upper voice when the lower voice hides its rests', () => {
+    // Apple Tree bar 41: E up-stem, rest, E up-stem, rest; F# down-stem a second below, shifted right, alone.
+    const four = { ...opts, measureQn: 4 };
+    const items = [
+      note('e1', 10, 1, { y: 102.5, stem: 'up', stemId: 1 }),
+      note('f', 16, 1, { y: 100, stem: 'down', stemId: 2 }),
+      rest('r1', 30, 1),
+      note('e2', 50, 1, { y: 102.5, stem: 'up', stemId: 3 }),
+      rest('r2', 70, 1),
+    ];
+    const r = assembleMeasure(items, four);
+    expect(r.method).toBe('two-voice');
+    expect(r.problem).toBeUndefined();
+    expect(['e1', 'f', 'r1', 'e2', 'r2'].map((id) => r.onsets.get(id))).toEqual([0, 0, 1, 2, 3]);
+  });
+
+  it('puts a stemless whole note in whichever voice makes the bar add up', () => {
+    // Apple Tree bar 122 (bass): quarter, two eighths, half with stems up; a whole note a second below, shifted right.
+    const four = { ...opts, measureQn: 4 };
+    const items = [
+      note('q', 10, 1, { y: 95, stem: 'up', stemId: 1 }),
+      note('w', 17, 4, { y: 97.5 }),
+      note('e1', 35, 0.5, { y: 100, stem: 'up', stemId: 2 }),
+      note('e2', 45, 0.5, { y: 102.5, stem: 'up', stemId: 3 }),
+      note('h', 60, 2, { y: 100, stem: 'up', stemId: 4 }),
+    ];
+    const r = assembleMeasure(items, four);
+    expect(r.method).toBe('two-voice');
+    expect(['q', 'w', 'e1', 'e2', 'h'].map((id) => r.onsets.get(id))).toEqual([0, 0, 1, 1.5, 2]);
+    // Bar 119: a whole note and the other voice's whole rest.
+    const held = assembleMeasure([note('w', 10, 4, { y: 97.5 }), rest('r', 50, 4, 95)], four);
+    expect(held.method).toBe('two-voice');
+    expect([held.onsets.get('w'), held.onsets.get('r')]).toEqual([0, 0]);
+  });
 });
+

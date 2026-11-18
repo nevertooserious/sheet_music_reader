@@ -32,6 +32,7 @@ import {
   measureRegions,
   mergeCollinear,
   polylineSegments,
+  slantedBrackets,
   verticalLines,
   type HLine,
   type MeasureRegion,
@@ -558,24 +559,41 @@ function detectTies(page: PageExtraction, heads: HeadInfo[], system: System): vo
       if (p.x < left.x) left = p;
       if (p.x > right.x) right = p;
     }
-    const near = (p: Point, side: 'left' | 'right'): HeadInfo | undefined => {
-      let best: HeadInfo | undefined;
-      let bestD = Infinity;
+    const candidates = (p: Point, side: 'left' | 'right'): Array<{ hd: HeadInfo; d: number }> => {
+      const out: Array<{ hd: HeadInfo; d: number }> = [];
       for (const hd of heads) {
-        const dx = side === 'left' ? p.x - hd.cx : hd.cx - p.x;
-        if (dx < -0.4 * sp || dx > 1.8 * sp) continue;
+        const fromCentre = side === 'left' ? p.x - hd.cx : hd.cx - p.x;
+        // A head displaced by a second sits a head width further out; its chord's near edge is still close.
+        const chord = heads.filter(
+          (o) => o.staff === hd.staff && (o === hd || (hd.stem ? o.stem === hd.stem : !o.stem && Math.abs(o.cx - hd.cx) <= 2.2 * sp)),
+        );
+        const fromEdge = side === 'left' ? p.x - Math.max(...chord.map((o) => o.glyph.x + o.glyph.advance)) : Math.min(...chord.map((o) => o.glyph.x)) - p.x;
+        const inWindow = (dx: number): boolean => dx >= -0.4 * sp && dx <= 1.8 * sp;
+        const dx = inWindow(fromCentre) ? fromCentre : inWindow(fromEdge) ? fromEdge : undefined;
+        if (dx === undefined) continue;
         const dy = Math.abs(hd.y - p.y);
         if (dy > 1.6 * sp) continue;
-        const d = Math.hypot(dx, dy);
-        if (d < bestD) {
-          bestD = d;
-          best = hd;
+        out.push({ hd, d: Math.hypot(dx, dy) });
+      }
+      return out.sort((x, y) => x.d - y.d);
+    };
+    const leftCands = candidates(left, 'left');
+    const rightCands = candidates(right, 'right');
+    // In a chord with a second the nearest head at one end is often the chord's other note: take the
+    // closest pair on the same step that is still free, and only fall back to the nearest heads without one.
+    let pair: [HeadInfo, HeadInfo] | undefined;
+    let pairD = Infinity;
+    for (const l of leftCands) {
+      for (const r of rightCands) {
+        const ok = l.hd !== r.hd && l.hd.staff === r.hd.staff && l.hd.step === r.hd.step && r.hd.cx > l.hd.cx && !l.hd.tiedTo && !r.hd.tiedFrom;
+        if (ok && l.d + r.d < pairD) {
+          pairD = l.d + r.d;
+          pair = [l.hd, r.hd];
         }
       }
-      return best;
-    };
-    const a = near(left, 'left');
-    const b = near(right, 'right');
+    }
+    const a = pair ? pair[0] : leftCands[0]?.hd;
+    const b = pair ? pair[1] : rightCands[0]?.hd;
     if (a && !b && right.x >= a.staff.x2 - 1.5 * sp && right.x > a.cx + 0.5 * sp) {
       a.tieOpen = true;
       continue;
@@ -590,7 +608,14 @@ function detectTies(page: PageExtraction, heads: HeadInfo[], system: System): vo
       }
     }
     if (!(a && b && a !== b && a.staff === b.staff && a.step === b.step && b.cx > a.cx && !a.tiedTo && !b.tiedFrom)) continue;
-    const between = heads.filter((hd) => hd.staff === a.staff && !hd.grace && hd.cx > a.cx + 0.5 * sp && hd.cx < b.cx - 0.5 * sp);
+    // Notes of either end's own chord are not "between" it. Stemless heads (whole notes) within a
+    // displaced second's width of a stemless end sound with it, whatever their pitch.
+    const stemlessMate = (hd: HeadInfo, end: HeadInfo): boolean => !hd.stem && !end.stem && Math.abs(hd.cx - end.cx) <= 2.2 * sp;
+    const chordMate = (hd: HeadInfo): boolean =>
+      (!!hd.stem && (hd.stem === a.stem || hd.stem === b.stem)) || stemlessMate(hd, a) || stemlessMate(hd, b);
+    const between = heads.filter(
+      (hd) => hd.staff === a.staff && !hd.grace && !chordMate(hd) && hd.cx > a.cx + 0.5 * sp && hd.cx < b.cx - 0.5 * sp,
+    );
     const sameVoice = between.some((hd) => !a.stem || !hd.stem || hd.stem.direction === a.stem.direction);
     if (sameVoice) continue;
     a.tiedTo = b;
@@ -708,11 +733,18 @@ function dedupeByMeasure<T extends { measure: number }>(list: T[]): T[] {
   return out.sort((a, b) => a.measure - b.measure);
 }
 
+function nearestStaff(staves: Staff[], y: number): Staff | undefined {
+  const gap = (s: Staff): number => (y < s.top ? s.top - y : y > s.bottom ? y - s.bottom : 0);
+  let best: Staff | undefined;
+  for (const s of staves) if (!best || gap(s) < gap(best)) best = s;
+  return best;
+}
+
 /** Thin horizontal strokes that are not staff lines: tuplet and volta brackets, ottava lines. */
 function bracketLines(page: PageExtraction, staves: Staff[]): HLine[] {
   const segs = polylineSegments(page.paths);
   const sp = staves[0]?.space ?? 5;
-  return mergeCollinear([...horizontalLines(page.paths), ...segs.horizontal], 0.5 * sp).filter(
+  return [...mergeCollinear([...horizontalLines(page.paths), ...segs.horizontal], 0.5 * sp), ...slantedBrackets(page.paths, sp)].filter(
     (h) => h.thickness <= 0.4 * sp && h.x2 - h.x1 >= 1 * sp && !staves.some((s) => s.lines.some((y) => Math.abs(y - h.y) < 0.3)),
   );
 }
@@ -1032,12 +1064,21 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
         midi: 0,
       }));
       attachStems(heads, stems, sysFlags, sp);
+      const chordRight = new Map<number, number>();
+      for (const h of heads) {
+        if (h.stem) chordRight.set(h.stem.id, Math.max(chordRight.get(h.stem.id) ?? -Infinity, h.glyph.x + h.glyph.advance));
+      }
       for (const info of heads) {
-        const right = info.glyph.x + info.glyph.advance;
-        info.dots = bag.dots.filter((d) => {
+        // Dots of a chord line up after its rightmost head, which is offset when the chord has a second in it.
+        const right = (info.stem && chordRight.get(info.stem.id)) ?? info.glyph.x + info.glyph.advance;
+        const near = bag.dots.filter((d) => {
           const dx = glyphCenterX(d) - right;
           return dx >= -0.3 * sp && dx <= 1.8 * sp && Math.abs(d.y - info.y) <= 0.8 * sp;
-        }).length;
+        });
+        // Each chord head has its own dot in the same column, so count columns, not glyphs.
+        const columns: number[] = [];
+        for (const x of near.map(glyphCenterX).sort((a, b) => a - b)) if (!columns.length || x - columns[columns.length - 1] > 0.4 * sp) columns.push(x);
+        info.dots = columns.length;
         info.durationQn = noteDurationQn({
           head: info.glyph.music.head ?? 'black',
           flags: info.stem?.flags ?? 0,
@@ -1056,10 +1097,12 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
       for (const t of pages[page].texts) {
         if (t.x < system.x1 + 1.5 * sp || t.x > system.x2 || t.size > 0.8 * staffHeight(staff) || isVoltaLabel(t.x, t.y)) continue;
         if (t.y < staff.top - 10 * sp || t.y > staff.bottom + 10 * sp) continue;
+        // A "3" between two staves is in reach of both; only the nearer one owns it.
+        if (nearestStaff(system.staves, t.y) !== staff) continue;
         const parsed = parseTupletText(t.text);
         if (parsed) tupletLabels.push({ cx: (t.x + t.right) / 2, y: t.y, size: t.size, ...parsed });
       }
-      const tupletItems: TupletItem[] = heads.map((h) => ({ id: h.id, cx: h.cx, y: h.y, stemId: h.stem?.id, grace: h.grace }));
+      const tupletItems: TupletItem[] = heads.map((h) => ({ id: h.id, cx: h.cx, y: h.y, stemId: h.stem?.id, grace: h.grace, whole: h.glyph.music.head === 'whole' || h.glyph.music.head === 'breve' }));
       const beamBoxes: BBox[] = beamsByPage[page].map((b) => b.bbox);
       const detected = detectTuplets(tupletLabels, tupletItems, beamBoxes, tupletBrackets, staff);
       const tuplets = detected.filter((t) => t.source === 'bracket');
@@ -1173,6 +1216,14 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
           info.midi = Math.max(0, Math.min(127, diatonicToMidi(info.diatonic, info.alteration)));
         }
         const soundingHeads = heads.filter((h) => !h.grace);
+        // A lone stemless head that is not a whole note (a circled cross starting a free slide) has no
+        // written length; like a lone rest, it holds the bar.
+        const loneFree =
+          build.nominalQn &&
+          soundingHeads.length > 0 &&
+          !bag.rests.some((r) => inRegion(r, region)) &&
+          soundingHeads.every((h) => !h.stem && h.glyph.music.head !== 'whole' && h.glyph.music.head !== 'breve' && Math.abs(h.cx - soundingHeads[0].cx) <= 1.5 * sp);
+        if (loneFree) for (const h of soundingHeads) h.durationQn = Math.max(h.durationQn, build.nominalQn);
         const candidates = analysis.tupletCandidates.filter((t) => t.x1 >= region.x1 - 2 * sp && t.x2 <= region.x2 + 2 * sp);
 
         const attempt = (applied: TupletGroup[]): StaffMeasureResult => {

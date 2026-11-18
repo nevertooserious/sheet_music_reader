@@ -58,12 +58,12 @@ export function clusterByX(items: RhythmItem[], space: number, tolerance = 1.0):
     if (!target) {
       const last = clusters[clusters.length - 1];
       if (last && item.x - last.x <= tolerance * space) target = last;
-      // A second in a stemless chord is displaced by a head width, beyond the normal tolerance.
+      // A second in a stemless chord is displaced by a head width (over 2 sp for wide whole-note glyphs such as Opus).
       else if (
         last &&
         item.kind === 'note' &&
         item.stemId === undefined &&
-        item.x - last.x <= 1.5 * space &&
+        item.x - last.x <= 2.2 * space &&
         last.items.some((o) => o.kind === 'note' && o.stemId === undefined && Math.abs(o.y - item.y) <= 0.6 * space)
       ) {
         target = last;
@@ -94,14 +94,36 @@ function fits(total: number, measureQn: number | undefined): boolean {
   return total <= measureQn + EPS;
 }
 
-function splitVoices(items: RhythmItem[], middleY: number): [RhythmItem[], RhythmItem[]] {
+interface VoiceSplit {
+  /**
+   * Rests on the middle line are usually the lower voice's, but when the other
+   * voice's rests are hidden (a voice that enters for a single note) the upper
+   * voice keeps its rests centred.
+   */
+  centredRests: 'down' | 'up';
+  /** Stemless notes (whole notes) have no direction; 'height' guesses from their position. */
+  stemless: 'height' | 'down' | 'up';
+}
+
+const SPLITS: VoiceSplit[] = [
+  { centredRests: 'down', stemless: 'height' },
+  { centredRests: 'up', stemless: 'height' },
+  { centredRests: 'down', stemless: 'down' },
+  { centredRests: 'down', stemless: 'up' },
+  { centredRests: 'up', stemless: 'down' },
+  { centredRests: 'up', stemless: 'up' },
+];
+
+function splitVoices(items: RhythmItem[], middleY: number, space: number, split: VoiceSplit): [RhythmItem[], RhythmItem[]] {
   const up: RhythmItem[] = [];
   const down: RhythmItem[] = [];
   const stemmed = items.filter((i) => i.kind === 'note' && i.stem);
   const meanY = items.length ? items.reduce((s, i) => s + i.y, 0) / items.length : middleY;
   for (const item of items) {
     if (item.kind === 'note' && item.stem) (item.stem === 'up' ? up : down).push(item);
+    else if (item.kind === 'note' && split.stemless !== 'height') (split.stemless === 'up' ? up : down).push(item);
     else if (item.kind === 'note') (item.y <= (stemmed.length ? meanY : middleY) ? up : down).push(item);
+    else if (split.centredRests === 'up' && Math.abs(item.y - middleY) < 0.5 * space) up.push(item);
     else (item.y < middleY ? up : down).push(item);
   }
   return [up, down];
@@ -131,8 +153,9 @@ export function assembleMeasure(items: RhythmItem[], opts: AssembleOptions): Ass
   });
   if (exact && !mixedCluster) return { onsets, totalQn: singleTotal, method: 'single', anchors: anchorsOf(), anomalies: restNoteClusters };
 
-  const [up, down] = splitVoices(items, opts.middleY);
-  if (up.length && down.length) {
+  for (const split of SPLITS) {
+    const [up, down] = splitVoices(items, opts.middleY, opts.space, split);
+    if (!up.length || !down.length) continue;
     const voiceOnsets = new Map<string, number>();
     const upTotal = sequential(clusterByX(up, opts.space), voiceOnsets);
     const downTotal = sequential(clusterByX(down, opts.space), voiceOnsets);

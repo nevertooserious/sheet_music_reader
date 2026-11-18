@@ -131,6 +131,32 @@ export function polylineSegments(paths: PathShape[], maxPoints = 6): { horizonta
 }
 
 /**
+ * Gently sloped thin strokes that end in a short vertical hook: tuplet
+ * brackets that follow a slanted beam (Sibelius draws each half of a broken
+ * bracket as its own sloped line). The hook keeps hairpins and other sloped
+ * strokes out. `y` is the midpoint height.
+ */
+export function slantedBrackets(paths: PathShape[], space: number): HLine[] {
+  const strokes: Array<[Point, Point, number]> = [];
+  for (const p of paths) {
+    if (p.kind !== 'stroke' || p.hasCurves) continue;
+    for (const sp of p.subpaths) if (sp.length === 2) strokes.push([sp[0], sp[1], p.lineWidth]);
+  }
+  const hooks = strokes.filter(([a, b]) => Math.abs(a.x - b.x) <= 0.35 && Math.abs(a.y - b.y) >= 0.4 * space && Math.abs(a.y - b.y) <= 2 * space);
+  const hasHook = (pt: Point): boolean =>
+    hooks.some(([a, b]) => Math.abs(a.x - pt.x) <= 0.3 && Math.min(Math.abs(a.y - pt.y), Math.abs(b.y - pt.y)) <= 0.6);
+  const out: HLine[] = [];
+  for (const [a, b, width] of strokes) {
+    const dx = Math.abs(a.x - b.x);
+    const dy = Math.abs(a.y - b.y);
+    if (dy <= 0.35 || dy > 0.25 * dx || dx < 1 * space) continue;
+    if (!hasHook(a) && !hasHook(b)) continue;
+    out.push({ x1: Math.min(a.x, b.x), x2: Math.max(a.x, b.x), y: (a.y + b.y) / 2, thickness: width });
+  }
+  return out;
+}
+
+/**
  * Same run of the page, within a tenth of the longer line. Endpoints are not
  * compared exactly because a bracket serif or system-line tick drawn flush
  * against a staff line merges into it (Dorico exports do this on the top and
