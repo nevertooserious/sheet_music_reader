@@ -549,8 +549,8 @@ function detectTies(page: PageExtraction, heads: HeadInfo[], system: System): vo
     if (path.kind !== 'fill' || !path.hasCurves) continue;
     const w = path.bbox.maxX - path.bbox.minX;
     const h = path.bbox.maxY - path.bbox.minY;
-    // Ties stay flat; long ones (whole notes across a barline) may reach ~25 sp and rise a little more.
-    if (w < 1.2 * sp || w > 25 * sp || h > Math.max(1.6 * sp, 0.12 * w)) continue;
+    // Ties stay flat; long ones (whole notes across a wide barline, ~27 sp in Apple Tree) rise a little more.
+    if (w < 1.2 * sp || w > 40 * sp || h > Math.max(1.6 * sp, 0.12 * w)) continue;
     if (path.bbox.minY > system.bottom + 10 * sp || path.bbox.maxY < system.top - 10 * sp) continue;
     const pts = path.subpaths.flat();
     let left = pts[0];

@@ -155,6 +155,10 @@ describe.skipIf(!available)('Apple Tree (external Sibelius export)', () => {
     }
     expect(bar('Staff 2', 112)).toEqual([]);
     expect(bar('Staff 2', 114)).toEqual([[72, 0, 4]]);
+    // Long ties (26-27 sp across a wide bar of whole notes): tenor and bass hold bars 111-114.
+    expect(bar('Staff 4', 111)).toEqual([[59, 0, 16]]);
+    expect(bar('Staff 5', 111)).toEqual([[52, 0, 16]]);
+    for (const b of [112, 113, 114]) expect([...bar('Staff 4', b), ...bar('Staff 5', b)]).toEqual([]);
     // The free slide's circled-cross head holds its bar.
     expect(bar('Staff 1', 121)).toEqual([[50, 0, 4]]);
   });
