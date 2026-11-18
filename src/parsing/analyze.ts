@@ -623,10 +623,14 @@ function detectTies(page: PageExtraction, heads: HeadInfo[], system: System): vo
   }
 }
 
-/** Join the open tie halves of the previous line to the continuation halves on this one, by staff position and step. */
-function joinBrokenTies(open: HeadInfo[], system: System, headsOf: (staff: Staff) => HeadInfo[]): void {
+/**
+ * Join the open tie halves of the previous line to the continuation halves on this one, by track and
+ * step. Matching by track rather than position in the system matters when staves come and go between
+ * systems (percussion lines that only appear where they play).
+ */
+function joinBrokenTies(open: HeadInfo[], system: System, headsOf: (staff: Staff) => HeadInfo[], slot: (staff: Staff) => number): void {
   for (const a of open) {
-    const staff = system.staves[a.staff.index];
+    const staff = system.staves.find((s) => slot(s) === slot(a.staff));
     if (!staff) continue;
     const b = headsOf(staff)
       .filter((h) => h.tieContinuation && !h.tiedFrom && h.step === a.step)
@@ -1124,7 +1128,7 @@ export function analyze(pages: PageExtraction[], opts: AnalyzeOptions): { score:
     }
 
     detectTies(pages[page], [...analyses.values()].flatMap((a) => a.heads), system);
-    joinBrokenTies(openTies, system, (staff) => analyses.get(staff)!.heads);
+    joinBrokenTies(openTies, system, (staff) => analyses.get(staff)!.heads, slot);
     openTies = [...analyses.values()].flatMap((a) => a.heads.filter((h) => h.tieOpen && !h.tiedTo));
 
     for (const region of regions) {

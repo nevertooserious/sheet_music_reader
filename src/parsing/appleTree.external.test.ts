@@ -159,6 +159,14 @@ describe.skipIf(!available)('Apple Tree (external Sibelius export)', () => {
     expect(bar('Staff 4', 111)).toEqual([[59, 0, 16]]);
     expect(bar('Staff 5', 111)).toEqual([[52, 0, 16]]);
     for (const b of [112, 113, 114]) expect([...bar('Staff 4', b), ...bar('Staff 5', b)]).toEqual([]);
+    // Ties broken across the page turn into bar 109, where the new system has one staff fewer.
+    expect(bar('Staff 2', 107)).toEqual([[66, 0, 16]]);
+    expect(bar('Staff 4', 107)).toEqual([[59, 0, 16]]);
+    expect(bar('Staff 5', 107)).toEqual([
+      [47, 0, 16],
+      [59, 0, 16],
+    ]);
+    expect(['Staff 2', 'Staff 4', 'Staff 5'].flatMap((t) => bar(t, 109))).toEqual([]);
     // The free slide's circled-cross head holds its bar.
     expect(bar('Staff 1', 121)).toEqual([[50, 0, 4]]);
   });
